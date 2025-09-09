@@ -5,7 +5,6 @@ set -euo pipefail
 # === CONFIG ===
 # Change this to the raw URL of your pre-commit hook in GitHub:
 HOOK_URL="${HOOK_URL:-https://raw.githubusercontent.com/verbadocs/commit-hook/main/.githooks/pre-commit}"
-
 # Set INIT_IF_MISSING=true to auto "git init" when run outside a repo
 INIT_IF_MISSING="${INIT_IF_MISSING:-false}"
 
@@ -64,10 +63,43 @@ fi
 
 mv "$TMP" "$DEST"
 chmod +x "$DEST"
-
 echo "✔ Installed .git/hooks/pre-commit"
 echo "   Repo: $REPO_ROOT"
 echo "   Hook: $DEST"
 
-# === 5) Smoke test hint ===
-echo "👉 Test it with:  git commit --allow-empty -m 'hook test'"
+# === 5) Configure Claude logging for this repo ===
+echo "🔧 Configuring Claude logging to prompts.txt in this repo..."
+
+# Remove any existing claude function from .zshrc
+if grep -q "claude()" ~/.zshrc 2>/dev/null; then
+  # Create backup
+  cp ~/.zshrc ~/.zshrc.bak.$(timestamp)
+  # Remove existing claude function
+  sed -i '' '/claude() {/,/^}/d' ~/.zshrc
+fi
+
+# Add new claude function that logs to current git repo's prompts.txt
+cat >> ~/.zshrc << 'EOF'
+claude() {
+  # Get current git repo root, fallback to home directory if not in a repo
+  if git rev-parse --show-toplevel >/dev/null 2>&1; then
+    local repo_root="$(git rev-parse --show-toplevel)"
+    local log_file="$repo_root/prompts.txt"
+  else
+    local log_file="~/claude.log"
+  fi
+  
+  echo "$(date '+%Y-%m-%d %H:%M:%S'): Starting Claude session in $(pwd)" >> "$log_file"
+  script "$log_file" command claude "$@"
+}
+EOF
+
+# Reload zshrc
+source ~/.zshrc
+
+echo "✔ Configured Claude to log to prompts.txt in git repos"
+echo "   Log file: $REPO_ROOT/prompts.txt"
+
+# === 6) Smoke test hint ===
+echo "👉 Test hook with:  git commit --allow-empty -m 'hook test'"
+echo "👉 Test Claude logging with:  claude"
