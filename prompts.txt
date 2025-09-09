@@ -12,3 +12,201 @@
 [2025-09-08 18:32:26] - [2025-09-10 23:26:09] yoooo
 [2025-09-08 18:32:26] hiiiii
 [2025-09-08 18:32:26] jhihih
+[2025-09-09 02:01:35] #!/bin/bash
+
+PROMPTS_FILE="prompts.txt"
+PROMPT_HISTORY_DIR="prompt_history"
+PROMPT_LOG_FILE="$PROMPT_HISTORY_DIR/prompt-logs-$(date +%Y%m%d-%H%M%S).md"
+
+if [ ! -f "$PROMPTS_FILE" ]; then
+    exit 0
+fi
+
+get_last_commit_timestamp() {
+    if git rev-parse --verify HEAD >/dev/null 2>&1; then
+        git log -1 --format="%ai" 2>/dev/null || echo "1970-01-01 00:00:00"
+    else
+        echo "1970-01-01 00:00:00"
+    fi
+}
+
+LAST_COMMIT_TIME=$(get_last_commit_timestamp)
+echo "Last commit time: $LAST_COMMIT_TIME" >&2
+
+LAST_COMMIT_EPOCH=$(date -j -f "%Y-%m-%d %H:%M:%S %z" "$LAST_COMMIT_TIME" "+%s" 2>/dev/null || echo "0")
+
+LAST_COMMIT_HASH=$(git rev-parse HEAD 2>/dev/null || echo "initial")
+LAST_COMMIT_SHORT=$(git rev-parse --short HEAD 2>/dev/null || echo "initial")
+
+mkdir -p "$PROMPT_HISTORY_DIR"
+
+echo "# Prompt Logs - $(date)" > "$PROMPT_LOG_FILE"
+echo "**Previous Commit:** ${LAST_COMMIT_HASH}" >> "$PROMPT_LOG_FILE"
+echo "**Short Hash:** ${LAST_COMMIT_SHORT}" >> "$PROMPT_LOG_FILE"
+echo "" >> "$PROMPT_LOG_FILE"
+echo "Prompts since last commit ($LAST_COMMIT_TIME):" >> "$PROMPT_LOG_FILE"
+echo "" >> "$PROMPT_LOG_FILE"
+
+FOUND_LOGS=false
+
+while IFS= read -r line; do
+    if [[ $line =~ ^\[([0-9]{4}-[0-9]{2}-[0-9]{2}\ [0-9]{2}:[0-9]{2}:[0-9]{2})\] ]]; then
+        TIMESTAMP="${BASH_REMATCH[1]}"
+        LOG_EPOCH=$(date -j -f "%Y-%m-%d %H:%M:%S" "$TIMESTAMP" "+%s" 2>/dev/null || echo "0")
+        
+        if [ "$LOG_EPOCH" -gt "$LAST_COMMIT_EPOCH" ]; then
+            echo "- $line" >> "$PROMPT_LOG_FILE"
+            FOUND_LOGS=true
+        fi
+    fi
+done < "$PROMPTS_FILE"
+
+if [ "$FOUND_LOGS" = false ]; then
+    echo "- No new prompts since last commit" >> "$PROMPT_LOG_FILE"
+fi
+
+echo "" >> "$PROMPT_LOG_FILE"
+echo "---" >> "$PROMPT_LOG_FILE"
+echo "*Auto-generated from $PROMPTS_FILE*" >> "$PROMPT_LOG_FILE"
+
+git add "$PROMPT_LOG_FILE"
+echo "Added $PROMPT_LOG_FILE to commit" >&2
+[2025-09-09 02:38:44] #!/usr/bin/env
+[2025-09-09 14:16:25] #!/usr/bin/env bash
+# install-hook.sh — installs a remote pre-commit into .git/hooks
+set -euo pipefail
+
+# === CONFIG ===
+# Change this to the raw URL of your pre-commit hook in GitHub:
+HOOK_URL="${HOOK_URL:-https://raw.githubusercontent.com/<you>/<repo>/main/.githooks/pre-commit}"
+
+# Set INIT_IF_MISSING=true to auto "git init" when run outside a repo
+INIT_IF_MISSING="${INIT_IF_MISSING:-false}"
+
+# === FUNCTIONS ===
+have() { command -v "$1" >/dev/null 2>&1; }
+
+fetch_to_file() {
+  local url="$1" out="$2"
+  if have curl; then
+    curl -fsSL "$url" -o "$out"
+  elif have wget; then
+    wget -qO "$out" "$url"
+  else
+    echo "❌ Need curl or wget to download $url" >&2
+    exit 1
+  fi
+}
+
+timestamp() { date +%Y%m%d-%H%M%S; }
+
+# === 1) Ensure we are in a git repo (or init if allowed) ===
+if ! git rev-parse --show-toplevel >/dev/null 2>&1; then
+  if [ "$INIT_IF_MISSING" = "true" ]; then
+    echo "🔧 No git repository detected. Running: git init"
+    git init
+  else
+    echo "❌ Not a git repository. Run inside a repo or set INIT_IF_MISSING=true" >&2
+    exit 1
+  fi
+fi
+
+REPO_ROOT="$(git rev-parse --show-toplevel)"
+cd "$REPO_ROOT"
+
+# === 2) Resolve hooks dir and destination path ===
+HOOKS_DIR="$(git rev-parse --git-path hooks)"
+DEST="$HOOKS_DIR/pre-commit"
+mkdir -p "$HOOKS_DIR"
+
+# === 3) Backup an existing hook if present ===
+if [ -e "$DEST" ] && [ ! -L "$DEST" ]; then
+  BAK="$DEST.bak.$(timestamp)"
+  cp "$DEST" "$BAK"
+  echo "🗂  Backed up existing pre-commit -> $BAK"
+fi
+
+# === 4) Download to a temp file, then atomically move into place ===
+TMP="$(mktemp)"
+echo "⬇️  Downloading hook from: $HOOK_URL"
+fetch_to_file "$HOOK_URL" "$TMP"
+
+# Quick sanity check
+if ! head -n1 "$TMP" | grep -qE '^#!'; then
+  echo "⚠️  Warning: downloaded hook has no shebang on the first line." >&2
+fi
+
+mv "$TMP" "$DEST"
+chmod +x "$DEST"
+
+echo "✔ Installed .git/hooks/pre-commit"
+echo "   Repo: $REPO_ROOT"
+echo "   Hook: $DEST"
+
+# === 5) Smoke test hint ===
+echo "👉 Test it with:  git commit --allow-empty -m 'hook test'"
+[2025-09-09 14:34:32] #!/bin/bash
+
+PROMPTS_FILE="prompts.txt"
+PROMPT_HISTORY_DIR="prompt_history"
+PROMPT_LOG_FILE="$PROMPT_HISTORY_DIR/prompt-logs-$(date +%Y%m%d-%H%M%S).md"
+
+if [ ! -f "$PROMPTS_FILE" ]; then
+    exit 0
+fi
+
+get_last_commit_timestamp() {
+    if git rev-parse --verify HEAD >/dev/null 2>&1; then
+        git log -1 --format="%ai" 2>/dev/null || echo "1970-01-01 00:00:00"
+    else
+        echo "1970-01-01 00:00:00"
+    fi
+}
+
+LAST_COMMIT_TIME=$(get_last_commit_timestamp)
+echo "Last commit time: $LAST_COMMIT_TIME" >&2
+
+LAST_COMMIT_EPOCH=$(date -j -f "%Y-%m-%d %H:%M:%S %z" "$LAST_COMMIT_TIME" "+%s" 2>/dev/null || echo "0")
+
+LAST_COMMIT_HASH=$(git rev-parse HEAD 2>/dev/null || echo "initial")
+LAST_COMMIT_SHORT=$(git rev-parse --short HEAD 2>/dev/null || echo "initial")
+
+mkdir -p "$PROMPT_HISTORY_DIR"
+
+echo "# Prompt Logs - $(date)" > "$PROMPT_LOG_FILE"
+echo "**Previous Commit:** ${LAST_COMMIT_HASH}" >> "$PROMPT_LOG_FILE"
+echo "**Short Hash:** ${LAST_COMMIT_SHORT}" >> "$PROMPT_LOG_FILE"
+echo "" >> "$PROMPT_LOG_FILE"
+echo "Prompts since last commit ($LAST_COMMIT_TIME):" >> "$PROMPT_LOG_FILE"
+echo "" >> "$PROMPT_LOG_FILE"
+
+FOUND_LOGS=false
+
+while IFS= read -r line; do
+    if [[ $line =~ ^\[([0-9]{4}-[0-9]{2}-[0-9]{2}\ [0-9]{2}:[0-9]{2}:[0-9]{2})\] ]]; then
+        TIMESTAMP="${BASH_REMATCH[1]}"
+        LOG_EPOCH=$(date -j -f "%Y-%m-%d %H:%M:%S" "$TIMESTAMP" "+%s" 2>/dev/null || echo "0")
+        
+        if [ "$LOG_EPOCH" -gt "$LAST_COMMIT_EPOCH" ]; then
+            echo "- $line" >> "$PROMPT_LOG_FILE"
+            FOUND_LOGS=true
+        fi
+    fi
+done < "$PROMPTS_FILE"
+
+if [ "$FOUND_LOGS" = false ]; then
+    echo "- No new prompts since last commit" >> "$PROMPT_LOG_FILE"
+fi
+
+echo "" >> "$PROMPT_LOG_FILE"
+echo "---" >> "$PROMPT_LOG_FILE"
+echo "*Auto-generated from $PROMPTS_FILE*" >> "$PROMPT_LOG_FILE"
+
+git add "$PROMPT_LOG_FILE"
+echo "Added $PROMPT_LOG_FILE to commit" >&2
+[2025-09-09 14:35:06] git remote add origin https://github.com/verbadocs/commit-hook.git
+[2025-09-09 14:35:10] ❯ git remote add origin https://github.com/verbadocs/commit-hook.git
+error: remote origin already exists.
+~/Desktop/prompting main* ⇡
+[2025-09-09 14:35:43] git remote remove origin
+[2025-09-09 14:36:01] git push -u origin main
