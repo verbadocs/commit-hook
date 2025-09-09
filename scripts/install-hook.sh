@@ -70,19 +70,17 @@ echo "   Hook: $DEST"
 # === 5) Configure Claude logging for this repo ===
 echo "🔧 Configuring Claude logging to prompts.txt in this repo..."
 
-# Safer approach: only remove lines that contain exactly our claude function
+# Remove existing claude function if it exists
 if grep -q "claude() {" ~/.zshrc 2>/dev/null; then
-  # Create backup
   cp ~/.zshrc ~/.zshrc.bak.$(timestamp)
   echo "🗂  Backed up .zshrc"
-  
-  # More precise removal - only remove our specific claude function
-  perl -i -pe 'BEGIN{undef $/;} s/claude\(\) \{[^}]*script[^}]*\}//smg' ~/.zshrc
+  perl -i -pe 'BEGIN{undef $/;} s/claude\(\) \{.*?\n\}//smg' ~/.zshrc
 fi
 
-# Add new claude function that logs to current git repo's prompts.txt
+# Add new claude function with prompt parsing
 cat >> ~/.zshrc << 'EOF'
 claude() {
+  # Determine log file location
   if git rev-parse --show-toplevel >/dev/null 2>&1; then
     local repo_root="$(git rev-parse --show-toplevel)"
     local log_file="$repo_root/prompts.txt"
@@ -90,12 +88,41 @@ claude() {
     local log_file="~/claude.log"
   fi
   
-  echo "$(date '+%Y-%m-%d %H:%M:%S'): Starting Claude session in $(pwd)" >> "$log_file"
-  script "$log_file" command claude "$@"
+  # Create temporary session file
+  local session_file="/tmp/claude-session-$(date +%s).log"
+  
+  echo "[$(date -Iseconds)] Claude session started" >> "$log_file"
+  
+  # Use script to capture the session
+  script -q "$session_file" claude "$@"
+  
+  # Parse the session file for user prompts
+  if [ -f "$session_file" ]; then
+    # Process the session file to extract prompts
+    while IFS= read -r line; do
+      # Remove ANSI codes and clean the line
+      clean_line=$(echo "$line" | sed 's/\x1b\[[0-9;]*[a-zA-Z]//g' | tr -d '\r' | sed 's/^[[:space:]]*//;s/[[:space:]]*$//')
+      
+      # Check if it's a user prompt (starts with "> " and has content)
+      if [[ "$clean_line" =~ ^">".+ ]] && [[ ${#clean_line} -gt 2 ]]; then
+        prompt="${clean_line:2}"  # Remove the "> " prefix
+        
+        # Filter out UI hints and empty prompts
+        if [[ ! "$prompt" =~ (Try|<filepath>) ]] && [[ -n "$prompt" ]]; then
+          echo "[$(date -Iseconds)] User Prompt: $prompt" >> "$log_file"
+        fi
+      fi
+    done < "$session_file"
+    
+    # Clean up temporary file
+    rm -f "$session_file"
+  fi
+  
+  echo "[$(date -Iseconds)] Claude session ended" >> "$log_file"
 }
 EOF
 
-echo "✔ Configured Claude to log to prompts.txt in git repos"
+echo "✔ Configured Claude to log parsed prompts to prompts.txt"
 echo "   Log file: $REPO_ROOT/prompts.txt"
 
 # === 6) Smoke test hint ===
