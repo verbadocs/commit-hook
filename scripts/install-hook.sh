@@ -4,7 +4,7 @@ set -euo pipefail
 
 # === CONFIG ===
 # Change this to the raw URL of your pre-commit hook in GitHub:
-HOOK_URL="${HOOK_URL:-https://raw.githubusercontent.com/verbadocs/main/.githooks/pre-commit}"
+HOOK_URL="${HOOK_URL:-https://raw.githubusercontent.com/verbadocs/commit-hook/main/.githooks/pre-commit}"
 
 # Set INIT_IF_MISSING=true to auto "git init" when run outside a repo
 INIT_IF_MISSING="${INIT_IF_MISSING:-false}"
