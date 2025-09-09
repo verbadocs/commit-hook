@@ -3,3 +3,6 @@
 [2025-09-07 23:20:05] ok now implement a frontend UI for a calcualtor using next.js
 [2025-09-07 23:20:09] don't use React, use Vue.
 [2025-09-08 23:26:09] Lastly.
+[2025-09-09 23:20:05] new prompt1
+[2025-09-09 23:20:09] new prompt 2
+[2025-09-09 23:26:09] new tomp3
