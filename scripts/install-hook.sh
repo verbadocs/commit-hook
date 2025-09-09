@@ -70,18 +70,19 @@ echo "   Hook: $DEST"
 # === 5) Configure Claude logging for this repo ===
 echo "🔧 Configuring Claude logging to prompts.txt in this repo..."
 
-# Remove any existing claude function from .zshrc
-if grep -q "claude()" ~/.zshrc 2>/dev/null; then
+# Safer approach: only remove lines that contain exactly our claude function
+if grep -q "claude() {" ~/.zshrc 2>/dev/null; then
   # Create backup
   cp ~/.zshrc ~/.zshrc.bak.$(timestamp)
-  # Remove existing claude function
-  sed -i '' '/claude() {/,/^}/d' ~/.zshrc
+  echo "🗂  Backed up .zshrc"
+  
+  # More precise removal - only remove our specific claude function
+  perl -i -pe 'BEGIN{undef $/;} s/claude\(\) \{[^}]*script[^}]*\}//smg' ~/.zshrc
 fi
 
 # Add new claude function that logs to current git repo's prompts.txt
 cat >> ~/.zshrc << 'EOF'
 claude() {
-  # Get current git repo root, fallback to home directory if not in a repo
   if git rev-parse --show-toplevel >/dev/null 2>&1; then
     local repo_root="$(git rev-parse --show-toplevel)"
     local log_file="$repo_root/prompts.txt"
@@ -94,12 +95,10 @@ claude() {
 }
 EOF
 
-# Reload zshrc
-source ~/.zshrc
-
 echo "✔ Configured Claude to log to prompts.txt in git repos"
 echo "   Log file: $REPO_ROOT/prompts.txt"
 
 # === 6) Smoke test hint ===
 echo "👉 Test hook with:  git commit --allow-empty -m 'hook test'"
 echo "👉 Test Claude logging with:  claude"
+echo "👉 Restart your terminal or run: source ~/.zshrc"
