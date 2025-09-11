@@ -80,7 +80,6 @@ fi
 # Add new claude function with prompt parsing
 cat >> ~/.zshrc << 'EOF'
 claude() {
-  # Determine log file location
   if git rev-parse --show-toplevel >/dev/null 2>&1; then
     local repo_root="$(git rev-parse --show-toplevel)"
     local log_file="$repo_root/prompts.txt"
@@ -88,35 +87,91 @@ claude() {
     local log_file="~/claude.log"
   fi
   
-  # Create temporary session file
   local session_file="/tmp/claude-session-$(date +%s).log"
+  local last_processed_position=0
   
   echo "[$(date -Iseconds)] Claude session started" >> "$log_file"
   
-  # Use script to capture the session
-  script -q "$session_file" claude "$@"
-  
-  # Parse the session file for user prompts
-  if [ -f "$session_file" ]; then
-    # Process the session file to extract prompts
+  # Function to process new prompts from session file
+  process_new_prompts() {
+    if [[ ! -f "$session_file" ]]; then
+      return
+    fi
+    
+    local file_content
+    if ! file_content=$(cat "$session_file" 2>/dev/null); then
+      return
+    fi
+    
+    # Only process content after our last position
+    local new_content="${file_content:$last_processed_position}"
+    if [[ ${#new_content} -eq 0 ]]; then
+      return
+    fi
+    
+    # Track prompts seen in this processing run to avoid duplicates
+    local -A seen_prompts
+    
+    # Process new lines for prompts - split by newlines exactly like the extension
     while IFS= read -r line; do
-      # Remove ANSI codes and clean the line
-      clean_line=$(echo "$line" | sed 's/\x1b\[[0-9;]*[a-zA-Z]//g' | tr -d '\r' | sed 's/^[[:space:]]*//;s/[[:space:]]*$//')
+      if [[ -z "$line" ]]; then
+        continue
+      fi
       
-      # Check if it's a user prompt (starts with "> " and has content)
-      if [[ "$clean_line" =~ ^">".+ ]] && [[ ${#clean_line} -gt 2 ]]; then
-        prompt="${clean_line:2}"  # Remove the "> " prefix
+      # Remove ANSI codes and carriage returns, then trim (handle non-ASCII bytes)
+      local clean_line=$(echo "$line" | LC_ALL=C sed -E 's/\x1b\[[0-9;]*[a-zA-Z]//g' | tr -d '\r' | LC_ALL=C sed 's/^[[:space:]]*//;s/[[:space:]]*$//')
+      
+      # Check if it's a user prompt line (starts with "> " and length > 2)
+      if [[ "$clean_line" == "> "* ]] && [[ ${#clean_line} -gt 2 ]]; then
+        # Extract prompt (substring from position 2, like extension)
+        local prompt="${clean_line:2}"
         
-        # Filter out UI hints and empty prompts
-        if [[ ! "$prompt" =~ (Try|<filepath>) ]] && [[ -n "$prompt" ]]; then
-          echo "[$(date -Iseconds)] User Prompt: $prompt" >> "$log_file"
+        # Filter out UI hints - exactly like extension
+        if [[ ! "$prompt" == *"Try"* ]] && [[ ! "$prompt" == *"<filepath>"* ]] && [[ ${#prompt} -gt 0 ]]; then
+          # Only log if we haven't seen this exact prompt in this processing run
+          if [[ -z "${seen_prompts[$prompt]}" ]]; then
+            seen_prompts[$prompt]=1
+            echo "[$(date -Iseconds)] User Prompt: $prompt" >> "$log_file"
+          fi
         fi
       fi
-    done < "$session_file"
+    done <<< "$new_content"
     
-    # Clean up temporary file
-    rm -f "$session_file"
-  fi
+    # Update our position to full file length
+    last_processed_position=${#file_content}
+  }
+  
+  # Start background monitoring process
+  {
+    # Initial delay before first processing (like the extension)
+    sleep 2
+    process_new_prompts
+    
+    # Then process every 5 seconds
+    while [[ -f "$session_file.active" ]]; do
+      sleep 5
+      process_new_prompts
+    done
+  } &
+  local monitor_pid=$!
+  
+  # Create active marker file
+  touch "$session_file.active"
+  
+  # Start Claude with script capture
+  script -q "$session_file" claude "$@"
+  
+  # Claude has exited, stop monitoring
+  rm -f "$session_file.active"
+  
+  # No need for final processing - the background monitor will catch everything
+  
+  # Kill monitor process if still running
+  kill $monitor_pid 2>/dev/null
+  wait $monitor_pid 2>/dev/null
+  
+  # Cleanup
+  rm -f "$session_file"
   
   echo "[$(date -Iseconds)] Claude session ended" >> "$log_file"
 }
