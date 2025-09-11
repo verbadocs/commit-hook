@@ -79,6 +79,7 @@ fi
 
 # Add new claude function with prompt parsing
 cat >> ~/.zshrc << 'EOF'
+
 claude() {
   if git rev-parse --show-toplevel >/dev/null 2>&1; then
     local repo_root="$(git rev-parse --show-toplevel)"
