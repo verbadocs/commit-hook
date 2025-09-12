@@ -93,7 +93,7 @@ claude() {
   
   echo "[$(date -Iseconds)] Claude session started" >> "$log_file"
   
-  # Function to process new prompts from session file
+  # Function to process new prompts and responses from session file
   process_new_prompts() {
     if [[ ! -f "$session_file" ]]; then
       return
@@ -110,24 +110,36 @@ claude() {
       return
     fi
     
-    # Track prompts seen in this processing run to avoid duplicates
+    # Track prompts and responses seen in this processing run to avoid duplicates
     local -A seen_prompts
+    local -A seen_responses
     
-    # Process new lines for prompts - split by newlines exactly like the extension
+    # Process new lines for prompts, responses, and tool results
+    local -A seen_tools
+    local in_tool_result=false
+    local current_tool_result=""
+    
     while IFS= read -r line; do
       if [[ -z "$line" ]]; then
         continue
       fi
       
-      # Remove ANSI codes and carriage returns, then trim (handle non-ASCII bytes)
-      local clean_line=$(echo "$line" | LC_ALL=C sed -E 's/\x1b\[[0-9;]*[a-zA-Z]//g' | tr -d '\r' | LC_ALL=C sed 's/^[[:space:]]*//;s/[[:space:]]*$//')
+      # Remove ANSI codes and carriage returns, then trim
+      local clean_line=$(printf '%s\n' "$line" | sed -E 's/\x1b\[[0-9;]*[a-zA-Z]//g' | tr -d '\r' | sed 's/^[[:space:]]*//;s/[[:space:]]*$//')
       
       # Check if it's a user prompt line (starts with "> " and length > 2)
       if [[ "$clean_line" == "> "* ]] && [[ ${#clean_line} -gt 2 ]]; then
-        # Extract prompt (substring from position 2, like extension)
+        # End any current tool result
+        if [[ "$in_tool_result" == true ]] && [[ ${#current_tool_result} -gt 0 ]]; then
+          echo "[$(date -Iseconds)] Tool Result: $current_tool_result" >> "$log_file"
+          in_tool_result=false
+          current_tool_result=""
+        fi
+        
+        # Extract prompt (substring from position 2)
         local prompt="${clean_line:2}"
         
-        # Filter out UI hints - exactly like extension
+        # Filter out UI hints
         if [[ ! "$prompt" == *"Try"* ]] && [[ ! "$prompt" == *"<filepath>"* ]] && [[ ${#prompt} -gt 0 ]]; then
           # Only log if we haven't seen this exact prompt in this processing run
           if [[ -z "${seen_prompts[$prompt]}" ]]; then
@@ -135,8 +147,65 @@ claude() {
             echo "[$(date -Iseconds)] User Prompt: $prompt" >> "$log_file"
           fi
         fi
+      # Check if it's a Claude response line (EXACTLY starts with ⏺)
+      elif [[ "$clean_line" == "⏺ "* ]]; then
+        # End any current tool result
+        if [[ "$in_tool_result" == true ]] && [[ ${#current_tool_result} -gt 0 ]]; then
+          echo "[$(date -Iseconds)] Tool Result: $current_tool_result" >> "$log_file"
+          in_tool_result=false
+          current_tool_result=""
+        fi
+        
+        # Extract response content after "⏺ "
+        local response="${clean_line:2}"
+        
+        # Capture text responses
+        if [[ ${#response} -gt 0 ]] && [[ ! "$response" == *"("*")"* ]]; then
+          # Only log if we haven't seen this exact response in this processing run
+          if [[ -z "${seen_responses[$response]}" ]]; then
+            seen_responses[$response]=1
+            echo "[$(date -Iseconds)] Claude Response: $response" >> "$log_file"
+          fi
+        # Capture tool calls
+        elif [[ "$response" == *"("*")"* ]]; then
+          if [[ -z "${seen_tools[$response]}" ]]; then
+            seen_tools[$response]=1
+            echo "[$(date -Iseconds)] Tool Call: $response" >> "$log_file"
+          fi
+        fi
+      # Check for tool results - look for "⎿" pattern which indicates tool output
+      elif [[ "$clean_line" == "⎿ "* ]] && [[ ${#clean_line} -gt 10 ]]; then
+        local result="${clean_line:2}"
+        # Skip status messages, only capture actual results
+        if [[ ! "$result" == *"Tip:"* ]] && [[ ! "$result" == *"interrupt"* ]]; then
+          in_tool_result=true
+          current_tool_result="$result"
+        fi
+      # If we're in a tool result, capture additional lines (like diff output)
+      elif [[ "$in_tool_result" == true ]]; then
+        # Look for lines that are part of the tool result (indented or contain diff markers)
+        if [[ "$clean_line" =~ ^[[:space:]]+[0-9]+ ]] || [[ "$clean_line" == *"+"* ]] || [[ "$clean_line" == *"-"* ]] || [[ "$clean_line" =~ ^[[:space:]]+\\ ]]; then
+          if [[ ${#current_tool_result} -gt 0 ]]; then
+            current_tool_result="$current_tool_result\n$clean_line"
+          else
+            current_tool_result="$clean_line"
+          fi
+        # Check if we've hit something that ends the tool result
+        elif [[ "$clean_line" =~ ^[[:space:]]*$ ]] || [[ "$clean_line" == *"─"* ]]; then
+          # End of tool result
+          if [[ ${#current_tool_result} -gt 0 ]]; then
+            echo "[$(date -Iseconds)] Tool Result: $current_tool_result" >> "$log_file"
+            in_tool_result=false
+            current_tool_result=""
+          fi
+        fi
       fi
     done <<< "$new_content"
+    
+    # If we ended while still in a tool result, log what we have
+    if [[ "$in_tool_result" == true ]] && [[ ${#current_tool_result} -gt 0 ]]; then
+      echo "[$(date -Iseconds)] Tool Result: $current_tool_result" >> "$log_file"
+    fi
     
     # Update our position to full file length
     last_processed_position=${#file_content}
