@@ -80,6 +80,7 @@ fi
 # Add new claude function with prompt parsing
 cat >> ~/.zshrc << 'EOF'
 
+
 claude() {
   if git rev-parse --show-toplevel >/dev/null 2>&1; then
     local repo_root="$(git rev-parse --show-toplevel)"
@@ -170,7 +171,7 @@ claude() {
       # Check for tool results
       elif [[ "$clean_line" == "⎿ "* ]] && [[ ${#clean_line} -gt 10 ]]; then
         local result="${clean_line:2}"
-        if [[ ! "$result" == *"Tip:"* ]] && [[ ! "$result" == *"interrupt"* ]]; then
+        if [[ ! "$result" == *"Tip:"* ]] && [[ ! "$result" == *"interrupt"* ]] && [[ ! "$result" == *"Next:"* ]] && [[ ! "$result" == *"Waiting…"* ]] && [[ ! "$result" == *"Running…"* ]]; then
           (echo "[$(date -Iseconds)] Tool Result: $result" >> "$log_file") 2>/dev/null
         fi
       fi
