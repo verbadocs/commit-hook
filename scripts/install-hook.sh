@@ -89,7 +89,7 @@ claude() {
   fi
   
   local session_file="/tmp/claude-session-$(date +%s).log"
-  local last_processed_position=0
+  local processed_lines_file="/tmp/claude-processed-$(date +%s).txt"
   
   echo "[$(date -Iseconds)] Claude session started" >> "$log_file"
   
@@ -99,25 +99,31 @@ claude() {
       return
     fi
     
-    local file_content
-    if ! file_content=$(cat "$session_file" 2>/dev/null); then
+    # Get number of lines already processed
+    local processed_lines=0
+    if [[ -f "$processed_lines_file" ]]; then
+      processed_lines=$(cat "$processed_lines_file" 2>/dev/null || echo "0")
+    fi
+    
+    # Get total lines in file
+    local total_lines=$(wc -l < "$session_file" 2>/dev/null || echo "0")
+    
+    # Only process if there are new lines
+    if [[ $total_lines -le $processed_lines ]]; then
       return
     fi
     
-    # Only process content after our last position
-    local new_content="${file_content:$last_processed_position}"
-    if [[ ${#new_content} -eq 0 ]]; then
+    # Process only new lines
+    local new_lines=$((total_lines - processed_lines))
+    local content
+    if ! content=$(tail -n "$new_lines" "$session_file" 2>/dev/null); then
       return
     fi
     
-    # Track prompts and responses seen in this processing run to avoid duplicates
+    # Track what we've seen to avoid duplicates
     local -A seen_prompts
     local -A seen_responses
-    
-    # Process new lines for prompts, responses, and tool results
     local -A seen_tools
-    local in_tool_result=false
-    local current_tool_result=""
     
     while IFS= read -r line; do
       if [[ -z "$line" ]]; then
@@ -127,123 +133,91 @@ claude() {
       # Remove ANSI codes and carriage returns, then trim
       local clean_line=$(printf '%s\n' "$line" | sed -E 's/\x1b\[[0-9;]*[a-zA-Z]//g' | tr -d '\r' | sed 's/^[[:space:]]*//;s/[[:space:]]*$//')
       
+      # Skip empty lines after cleaning
+      if [[ -z "$clean_line" ]]; then
+        continue
+      fi
+      
       # Check if it's a user prompt line (starts with "> " and length > 2)
       if [[ "$clean_line" == "> "* ]] && [[ ${#clean_line} -gt 2 ]]; then
-        # End any current tool result
-        if [[ "$in_tool_result" == true ]] && [[ ${#current_tool_result} -gt 0 ]]; then
-          echo "[$(date -Iseconds)] Tool Result: $current_tool_result" >> "$log_file"
-          in_tool_result=false
-          current_tool_result=""
-        fi
-        
-        # Extract prompt (substring from position 2)
         local prompt="${clean_line:2}"
         
-        # Filter out UI hints
+        # Filter out UI hints and duplicates
         if [[ ! "$prompt" == *"Try"* ]] && [[ ! "$prompt" == *"<filepath>"* ]] && [[ ${#prompt} -gt 0 ]]; then
-          # Only log if we haven't seen this exact prompt in this processing run
           if [[ -z "${seen_prompts[$prompt]}" ]]; then
             seen_prompts[$prompt]=1
-            echo "[$(date -Iseconds)] User Prompt: $prompt" >> "$log_file"
+            # Use a subshell to avoid script capturing this output
+            (echo "[$(date -Iseconds)] User Prompt: $prompt" >> "$log_file") 2>/dev/null
           fi
         fi
-      # Check if it's a Claude response line (EXACTLY starts with ⏺)
+      # Check if it's a Claude response line
       elif [[ "$clean_line" == "⏺ "* ]]; then
-        # End any current tool result
-        if [[ "$in_tool_result" == true ]] && [[ ${#current_tool_result} -gt 0 ]]; then
-          echo "[$(date -Iseconds)] Tool Result: $current_tool_result" >> "$log_file"
-          in_tool_result=false
-          current_tool_result=""
-        fi
-        
-        # Extract response content after "⏺ "
         local response="${clean_line:2}"
         
         # Capture text responses
         if [[ ${#response} -gt 0 ]] && [[ ! "$response" == *"("*")"* ]]; then
-          # Only log if we haven't seen this exact response in this processing run
           if [[ -z "${seen_responses[$response]}" ]]; then
             seen_responses[$response]=1
-            echo "[$(date -Iseconds)] Claude Response: $response" >> "$log_file"
+            (echo "[$(date -Iseconds)] Claude Response: $response" >> "$log_file") 2>/dev/null
           fi
         # Capture tool calls
         elif [[ "$response" == *"("*")"* ]]; then
           if [[ -z "${seen_tools[$response]}" ]]; then
             seen_tools[$response]=1
-            echo "[$(date -Iseconds)] Tool Call: $response" >> "$log_file"
+            (echo "[$(date -Iseconds)] Tool Call: $response" >> "$log_file") 2>/dev/null
           fi
         fi
-      # Check for tool results - look for "⎿" pattern which indicates tool output
+      # Check for tool results
       elif [[ "$clean_line" == "⎿ "* ]] && [[ ${#clean_line} -gt 10 ]]; then
         local result="${clean_line:2}"
-        # Skip status messages, only capture actual results
         if [[ ! "$result" == *"Tip:"* ]] && [[ ! "$result" == *"interrupt"* ]]; then
-          in_tool_result=true
-          current_tool_result="$result"
-        fi
-      # If we're in a tool result, capture additional lines (like diff output)
-      elif [[ "$in_tool_result" == true ]]; then
-        # Look for lines that are part of the tool result (indented or contain diff markers)
-        if [[ "$clean_line" =~ ^[[:space:]]+[0-9]+ ]] || [[ "$clean_line" == *"+"* ]] || [[ "$clean_line" == *"-"* ]] || [[ "$clean_line" =~ ^[[:space:]]+\\ ]]; then
-          if [[ ${#current_tool_result} -gt 0 ]]; then
-            current_tool_result="$current_tool_result\n$clean_line"
-          else
-            current_tool_result="$clean_line"
-          fi
-        # Check if we've hit something that ends the tool result
-        elif [[ "$clean_line" =~ ^[[:space:]]*$ ]] || [[ "$clean_line" == *"─"* ]]; then
-          # End of tool result
-          if [[ ${#current_tool_result} -gt 0 ]]; then
-            echo "[$(date -Iseconds)] Tool Result: $current_tool_result" >> "$log_file"
-            in_tool_result=false
-            current_tool_result=""
-          fi
+          (echo "[$(date -Iseconds)] Tool Result: $result" >> "$log_file") 2>/dev/null
         fi
       fi
-    done <<< "$new_content"
+    done <<< "$content"
     
-    # If we ended while still in a tool result, log what we have
-    if [[ "$in_tool_result" == true ]] && [[ ${#current_tool_result} -gt 0 ]]; then
-      echo "[$(date -Iseconds)] Tool Result: $current_tool_result" >> "$log_file"
-    fi
-    
-    # Update our position to full file length
-    last_processed_position=${#file_content}
+    # Update processed lines count
+    echo "$total_lines" > "$processed_lines_file"
   }
   
-  # Start background monitoring process
+  # Start background monitoring process with output redirection
   {
-    # Initial delay before first processing (like the extension)
-    sleep 2
-    process_new_prompts
+    # Initial delay
+    sleep 3
     
-    # Then process every 5 seconds
+    # Monitor while session is active
     while [[ -f "$session_file.active" ]]; do
+      process_new_prompts 2>/dev/null
       sleep 5
-      process_new_prompts
     done
-  } &
+  } >/dev/null 2>&1 &
+  
   local monitor_pid=$!
   
   # Create active marker file
   touch "$session_file.active"
   
-  # Start Claude with script capture
-  script -q "$session_file" claude "$@"
+  # Start Claude with script capture, but redirect stderr to avoid capturing log writes
+  script -q "$session_file" claude "$@" 2>/dev/null
   
   # Claude has exited, stop monitoring
   rm -f "$session_file.active"
   
-  # No need for final processing - the background monitor will catch everything
+  # Final processing of any remaining content
+  sleep 1
+  process_new_prompts 2>/dev/null
   
   # Kill monitor process if still running
-  kill $monitor_pid 2>/dev/null
-  wait $monitor_pid 2>/dev/null
+  if kill -0 $monitor_pid 2>/dev/null; then
+    kill $monitor_pid 2>/dev/null
+    wait $monitor_pid 2>/dev/null
+  fi
   
   # Cleanup
   rm -f "$session_file"
+  rm -f "$processed_lines_file"
   
-  echo "[$(date -Iseconds)] Claude session ended" >> "$log_file"
+  (echo "[$(date -Iseconds)] Claude session ended" >> "$log_file") 2>/dev/null
 }
 EOF
 
