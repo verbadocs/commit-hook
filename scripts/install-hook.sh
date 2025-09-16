@@ -67,8 +67,13 @@ echo "✔ Installed .git/hooks/pre-commit"
 echo "   Repo: $REPO_ROOT"
 echo "   Hook: $DEST"
 
-# === 5) Configure Claude logging for this repo ===
-echo "🔧 Configuring Claude logging to prompts.txt in this repo..."
+# === 5) Create verba folder structure ===
+echo "📁 Creating verba folder structure..."
+mkdir -p "$REPO_ROOT/verba"
+echo "✔ Created verba/ directory for AI interaction logs"
+
+# === 6) Configure Claude logging for this repo ===
+echo "🔧 Configuring Claude logging to verba/prompts.txt in this repo..."
 
 # Remove existing claude function if it exists
 if grep -q "claude() {" ~/.zshrc 2>/dev/null; then
@@ -83,7 +88,7 @@ cat >> ~/.zshrc << 'EOF'
 claude() {
   if git rev-parse --show-toplevel >/dev/null 2>&1; then
     local repo_root="$(git rev-parse --show-toplevel)"
-    local log_file="$repo_root/prompts.txt"
+    local log_file="$repo_root/verba/prompts.txt"
   else
     local log_file="~/claude.log"
   fi
@@ -340,10 +345,10 @@ claude() {
 }
 EOF
 
-echo "✔ Configured Claude to log parsed prompts to prompts.txt"
-echo "   Log file: $REPO_ROOT/prompts.txt"
+echo "✔ Configured Claude to log parsed prompts to verba/prompts.txt"
+echo "   Log file: $REPO_ROOT/verba/prompts.txt"
 
-# === 6) Smoke test hint ===
+# === 7) Smoke test hint ===
 echo "👉 Test hook with:  git commit --allow-empty -m 'hook test'"
 echo "👉 Test Claude logging with:  claude"
 echo "👉 Restart your terminal or run: source ~/.zshrc"
