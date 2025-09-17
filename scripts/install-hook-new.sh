@@ -3,10 +3,12 @@
 set -euo pipefail
 
 # === CONFIG ===
-# Change this to the raw URL of your pre-commit hook in GitHub:
+# Raw URL of your pre-commit hook (can be overridden by env HOOK_URL)
 HOOK_URL="${HOOK_URL:-https://raw.githubusercontent.com/verbadocs/commit-hook/main/.githooks/pre-commit}"
 # Set INIT_IF_MISSING=true to auto "git init" when run outside a repo
 INIT_IF_MISSING="${INIT_IF_MISSING:-false}"
+# Default: edit shell rc (can be turned off by --no-shell-edit)
+EDIT_SHELL="${EDIT_SHELL:-true}"
 
 # === FUNCTIONS ===
 have() { command -v "$1" >/dev/null 2>&1; }
@@ -30,6 +32,8 @@ DO_UNINSTALL=false
 for arg in "${@:-}"; do
   case "$arg" in
     --uninstall) DO_UNINSTALL=true ;;
+    --no-shell-edit) EDIT_SHELL=false ;;
+    --init-if-missing) INIT_IF_MISSING=true ;;
   esac
 done
 
@@ -39,7 +43,7 @@ if ! git rev-parse --show-toplevel >/dev/null 2>&1; then
     echo "🔧 No git repository detected. Running: git init"
     git init
   else
-    echo "❌ Not a git repository. Run inside a repo or set INIT_IF_MISSING=true" >&2
+    echo "❌ Not a git repository. Run inside a repo or pass --init-if-missing" >&2
     exit 1
   fi
 fi
@@ -93,30 +97,31 @@ echo "📁 Creating verba folder structure..."
 mkdir -p "$REPO_ROOT/verba"
 echo "✔ Created verba/ directory for AI interaction logs"
 
-# === 6) Configure Claude logging for this repo ===
-echo "🔧 Configuring Claude logging to verba/prompts.txt in this repo..."
+# === 6) Configure Claude logging for this repo (optional) ===
+if [ "$EDIT_SHELL" = true ]; then
+  echo "🔧 Configuring Claude logging to verba/prompts.txt in this repo..."
 
-# Detect rc file (zsh, bash, or fallback)
-SHELL_NAME="$(basename "${SHELL:-}")"
-case "$SHELL_NAME" in
-  zsh) RC_FILE="$HOME/.zshrc" ;;
-  bash) RC_FILE="$HOME/.bashrc" ;;
-  *) RC_FILE="$HOME/.profile" ;;
-esac
-[ -f "$RC_FILE" ] || touch "$RC_FILE"
+  # Detect rc file (zsh, bash, or fallback)
+  SHELL_NAME="$(basename "${SHELL:-}")"
+  case "$SHELL_NAME" in
+    zsh) RC_FILE="$HOME/.zshrc" ;;
+    bash) RC_FILE="$HOME/.bashrc" ;;
+    *) RC_FILE="$HOME/.profile" ;;
+  esac
+  [ -f "$RC_FILE" ] || touch "$RC_FILE"
 
-# Remove existing claude function if it exists
-if grep -q "claude() {" "$RC_FILE" 2>/dev/null; then
-  cp "$RC_FILE" "$RC_FILE.bak.$(timestamp)"
-  echo "🗂  Backed up $RC_FILE"
-  perl -i -pe 'BEGIN{undef $/;} s/\n?# BEGIN VERBA CLAUDE[\s\S]*?# END VERBA CLAUDE\n?//smg' "$RC_FILE"
-fi
+  # Remove existing claude function block if we previously added it
+  if grep -q "BEGIN VERBA CLAUDE" "$RC_FILE" 2>/dev/null; then
+    cp "$RC_FILE" "$RC_FILE.bak.$(timestamp)"
+    echo "🗂  Backed up $RC_FILE"
+    perl -i -pe 'BEGIN{undef $/;} s/\n?# BEGIN VERBA CLAUDE[\s\S]*?# END VERBA CLAUDE\n?//smg' "$RC_FILE"
+  fi
 
-# Add new claude function (your full implementation preserved)
-cat >> "$RC_FILE" << 'EOF'
+  # Add your full claude() implementation (unchanged), plus Linux shasum alias
+  cat >> "$RC_FILE" << 'EOF'
 
-## Verbe Additions to Config
-
+# BEGIN VERBA CLAUDE
+# shasum fallback for Linux
 if ! command -v shasum >/dev/null 2>&1 && command -v sha256sum >/dev/null 2>&1; then
   alias shasum='sha256sum'
 fi
@@ -126,7 +131,7 @@ claude() {
     local repo_root="$(git rev-parse --show-toplevel)"
     local log_file="$repo_root/verba/prompts.txt"
   else
-    local log_file="~/claude.log"
+    local log_file="$HOME/claude.log"
   fi
   
   local session_file="/tmp/claude-session-$(date +%s).log"
@@ -145,9 +150,7 @@ claude() {
       return
     fi
     
-    
-    
-    # Clean the session file first - exact same as final_code_diffs.sh
+    # Clean the session file
     local temp_full_file=$(mktemp)
     cat "$session_file" | \
         LC_ALL=C sed -E 's/\x1b\[[0-9;]*[a-zA-Z]//g' | \
@@ -155,7 +158,6 @@ claude() {
     
     # Find the line number of the most recent user input (starts with "> " after cleaning)
     local last_prompt_line=$(grep -n "^> " "$temp_full_file" | tail -1 | cut -d: -f1)
-    
     if [[ -z "$last_prompt_line" ]]; then
       rm "$temp_full_file"
       return
@@ -163,7 +165,6 @@ claude() {
     
     # Extract the actual user prompt text
     local most_recent_prompt=$(sed -n "${last_prompt_line}p" "$temp_full_file" | sed 's/^> //')
-    
     
     # Check if we've already logged this prompt (separate from diff processing)
     local prompt_logged_marker="/tmp/claude-logged-$(basename "$session_file").marker"
@@ -183,28 +184,14 @@ claude() {
       rm -f "/tmp/claude-prompt-diffs-$(basename "$session_file").hash"
     fi
     
-    
     # Find the next user input after the most recent one (to limit scope)
     local next_prompt_line=$(grep -n "^> " "$temp_full_file" | awk -F: -v last="$last_prompt_line" '$1 > last {print $1; exit}')
     
     # Extract only the content between the most recent prompt and the next prompt (or end of file)
     local temp_file=$(mktemp)
-    local start_line=$((last_prompt_line + 1))
-    local end_line
-    
     if [[ -n "$next_prompt_line" ]]; then
-      end_line=$((next_prompt_line - 1))
-    else
-      end_line=$(wc -l < "$temp_full_file")
-    fi
-    
-    # Extract only the content between the most recent prompt and the next prompt (or end of file)
-    # This naturally avoids duplicates from previous prompts
-    if [[ -n "$next_prompt_line" ]]; then
-      # Extract between last prompt and next prompt
       sed -n "$((last_prompt_line + 1)),$((next_prompt_line - 1))p" "$temp_full_file" > "$temp_file"
     else
-      # Extract from last prompt to end of file
       tail -n +$((last_prompt_line + 1)) "$temp_full_file" > "$temp_file"
     fi
     
@@ -226,33 +213,19 @@ claude() {
     # Process traditional diff lines (Update operations)
     if [[ -s "$temp_matches" ]]; then
       while IFS=':' read -r session_line content; do
-        # Check for filename patterns before this diff line
         local filename_before=$(head -n "$session_line" "$temp_file" | grep -E "⏺.*Update\(" | tail -1 | sed -E 's/.*⏺.*Update\(([^)]+)\).*/\1/')
-        
-        # Clean up the line and format it
         local clean_line=$(echo "$content" | sed 's/^[[:space:]]*//' | sed 's/[[:space:]]*$//')
-        
-        # Skip very short or empty lines
         if [[ ${#clean_line} -gt 10 ]]; then
-          # Create a hash of this diff line to check for duplicates within this prompt
           local diff_hash=$(echo "$filename_before:$clean_line" | shasum -a 256 | cut -d' ' -f1)
-          
-          # Check if we've already logged this exact diff for this prompt
           if [[ ! -f "$prompt_diff_hash_file" ]] || ! grep -q "$diff_hash" "$prompt_diff_hash_file" 2>/dev/null; then
-            # This is a new diff for this prompt, log it
             logged_new_content=true
-            
-            # If we found a new filename, show it
             if [[ -n "$filename_before" && "$filename_before" != "$current_file" ]]; then
               current_file="$filename_before"
               echo "" >> "$log_file"
               echo "FILE: $current_file" >> "$log_file"
               echo "----------------------------------------" >> "$log_file"
             fi
-            
             echo "$clean_line" >> "$log_file"
-            
-            # Mark this diff as logged for this prompt
             echo "$diff_hash" >> "$prompt_diff_hash_file"
           fi
         fi
@@ -262,89 +235,45 @@ claude() {
     # Process Write operations (new file creation)
     if [[ -s "$temp_writes" ]]; then
       while IFS=':' read -r write_line write_content; do
-        # Extract filename from Write operation
         local write_filename=$(echo "$write_content" | sed -E 's/.*⏺.*Write\(([^)]+)\).*/\1/')
-        
         if [[ -n "$write_filename" ]]; then
-          # Create a hash for this write operation
           local write_hash=$(echo "WRITE:$write_filename" | shasum -a 256 | cut -d' ' -f1)
-          
-          # Check if we've already logged this write operation for this prompt
           if [[ ! -f "$prompt_diff_hash_file" ]] || ! grep -q "$write_hash" "$prompt_diff_hash_file" 2>/dev/null; then
             logged_new_content=true
-            
-            # Show the filename
             if [[ "$write_filename" != "$current_file" ]]; then
               current_file="$write_filename"
               echo "" >> "$log_file"
               echo "FILE: $current_file" >> "$log_file"
               echo "----------------------------------------" >> "$log_file"
             fi
-            
-            # Read the complete file content directly from filesystem
-            # Handle both absolute and relative paths
             local file_to_read="$write_filename"
-            if [[ ! "$write_filename" =~ ^/ ]]; then
-              # If it's a relative path, make it relative to the current working directory
-              file_to_read="$(pwd)/$write_filename"
-            fi
-            
-            # Wait for file to exist and be fully written (with timeout)
-            local max_attempts=30  # 30 attempts = ~60 seconds max wait
-            local attempt=0
-            local file_found=false
-            
+            [[ "$write_filename" =~ ^/ ]] || file_to_read="$(pwd)/$write_filename"
+            local max_attempts=30 attempt=0 file_found=false
             while [[ $attempt -lt $max_attempts ]]; do
               if [[ -f "$file_to_read" ]]; then
-                # File exists, wait a moment for it to be fully written
-                sleep 1
-                # Check if file size is stable (not still being written)
-                local size1=$(wc -c < "$file_to_read" 2>/dev/null || echo "0")
-                sleep 1
-                local size2=$(wc -c < "$file_to_read" 2>/dev/null || echo "0")
-                
-                if [[ "$size1" == "$size2" ]] && [[ "$size1" -gt 0 ]]; then
-                  file_found=true
-                  break
-                fi
+                sleep 1; local size1=$(wc -c < "$file_to_read" 2>/dev/null || echo "0")
+                sleep 1; local size2=$(wc -c < "$file_to_read" 2>/dev/null || echo "0")
+                if [[ "$size1" == "$size2" && "$size1" -gt 0 ]]; then file_found=true; break; fi
               fi
-              sleep 2
-              ((attempt++))
+              sleep 2; ((attempt++))
             done
-            
-            # Read and log the complete file content
             if [[ "$file_found" == true ]]; then
               cat "$file_to_read" >> "$log_file"
             else
-              echo "# File not found or still being written: $file_to_read (waited ${max_attempts} attempts)" >> "$log_file"
+              echo "# File not found or still being written: $file_to_read" >> "$log_file"
             fi
-            
-            # Mark this write operation as logged
             echo "$write_hash" >> "$prompt_diff_hash_file"
           fi
         fi
       done < "$temp_writes"
     fi
     
-    # Only add trailing empty line if we actually logged new content
-    if [[ "$logged_new_content" == true ]]; then
-      echo "" >> "$log_file"
-    fi
-    
-    rm "$temp_matches"
-    rm "$temp_writes"
-    
-    # Clean up
-    rm "$temp_file"
-    rm "$temp_full_file"
+    [[ "$logged_new_content" == true ]] && echo "" >> "$log_file"
+    rm -f "$temp_matches" "$temp_writes" "$temp_file" "$temp_full_file"
   }
   
-  # Start background monitoring process with output redirection
   {
-    # Initial delay
     sleep 3
-    
-    # Monitor while session is active
     while [[ -f "$session_file.active" ]]; do
       extract_code_diffs 2>/dev/null
       sleep 2
@@ -352,40 +281,30 @@ claude() {
   } >/dev/null 2>&1 &
   
   local monitor_pid=$!
-  
-  # Create active marker file
   touch "$session_file.active"
-  
-  # Start Claude with script capture, but redirect stderr to avoid capturing log writes
   script -q "$session_file" claude "$@" 2>/dev/null
-  
-  # Claude has exited, stop monitoring
   rm -f "$session_file.active"
-  
-  # Final processing of any remaining content
   sleep 1
   extract_code_diffs 2>/dev/null
-  
-  # Kill monitor process if still running
   if kill -0 $monitor_pid 2>/dev/null; then
     kill $monitor_pid 2>/dev/null
     wait $monitor_pid 2>/dev/null
   fi
-  
-  # Cleanup
-  rm -f "$session_file"
-  rm -f "/tmp/claude-logged-$(basename "$session_file").marker"
-  rm -f "/tmp/claude-prompt-diffs-$(basename "$session_file").hash"
-  
+  rm -f "$session_file" "/tmp/claude-logged-$(basename "$session_file").marker" "/tmp/claude-prompt-diffs-$(basename "$session_file").hash"
   (echo "[$(date -Iseconds)] Claude session ended" >> "$log_file") 2>/dev/null
 }
-## End Verba Additions to Config
+# END VERBA CLAUDE
 EOF
 
-echo "✔ Configured Claude to log parsed prompts to verba/prompts.txt"
-echo "   Log file: $REPO_ROOT/verba/prompts.txt"
+  echo "✔ Configured Claude to log parsed prompts to verba/prompts.txt"
+  echo "   Log file: $REPO_ROOT/verba/prompts.txt"
+else
+  echo "ℹ️ Skipping shell edits (--no-shell-edit)."
+fi
 
 # === 7) Smoke test hint ===
 echo "👉 Test hook with:  git commit --allow-empty -m 'hook test'"
-echo "👉 Test Claude logging with:  claude"
-echo "👉 Restart your terminal or run: source \"$RC_FILE\""
+if [ "$EDIT_SHELL" = true ]; then
+  echo "👉 Test Claude logging with:  claude"
+  echo "👉 Restart your terminal or run: source \"$RC_FILE\""
+fi
