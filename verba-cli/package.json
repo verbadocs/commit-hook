@@ -1,0 +1,29 @@
+{
+  "name": "runverba",
+  "version": "0.1.0",
+  "description": "Verba (yc s25) — let's version your prompts!",
+  "bin": {
+    "verba": "./verba.sh"
+  },
+  "files": [
+    "verba.sh",
+    "README.md"
+  ],
+  "license": "MIT",
+  "keywords": [
+    "git",
+    "hooks",
+    "pre-commit",
+    "prompts",
+    "ai",
+    "claude"
+  ],
+  "homepage": "https://github.com/verbadocs/commit-hook",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/verbadocs/commit-hook.git"
+  },
+  "bugs": {
+    "url": "https://github.com/verbadocs/commit-hook/issues"
+  }
+}
