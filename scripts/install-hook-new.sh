@@ -20,7 +20,7 @@ fetch_to_file() {
   elif have wget; then
     wget -qO "$out" "$url"
   else
-    echo "❌ Need curl or wget to download $url" >&2
+    echo "Need curl or wget to download $url" >&2
     exit 1
   fi
 }
@@ -40,10 +40,10 @@ done
 # === 1) Ensure we are in a git repo (or init if allowed) ===
 if ! git rev-parse --show-toplevel >/dev/null 2>&1; then
   if [ "$INIT_IF_MISSING" = "true" ]; then
-    echo "🔧 No git repository detected. Running: git init"
+    echo "No git repository detected. Running: git init"
     git init
   else
-    echo "❌ Not a git repository. Run inside a repo or pass --init-if-missing" >&2
+    echo "Not a git repository. Run git init or pass --init-if-missing" >&2
     exit 1
   fi
 fi
@@ -58,14 +58,14 @@ mkdir -p "$HOOKS_DIR"
 
 # === Uninstall mode ===
 if [ "$DO_UNINSTALL" = true ]; then
-  echo "🗑  Removing Verba hook and claude() function..."
+  echo "Removing Verba hook and claude() function..."
   rm -f "$DEST"
   for rc in "$HOME/.zshrc" "$HOME/.bashrc" "$HOME/.profile"; do
     [ -f "$rc" ] || continue
     cp "$rc" "$rc.bak.$(timestamp)"
     perl -i -pe 'BEGIN{undef $/;} s/\n?# BEGIN VERBA CLAUDE[\s\S]*?# END VERBA CLAUDE\n?//smg' "$rc"
   done
-  echo "✔ Uninstalled."
+  echo "Uninstalled!"
   exit 0
 fi
 
@@ -73,17 +73,17 @@ fi
 if [ -e "$DEST" ] && [ ! -L "$DEST" ]; then
   BAK="$DEST.bak.$(timestamp)"
   cp "$DEST" "$BAK"
-  echo "🗂  Backed up existing pre-commit -> $BAK"
+  echo "Backed up existing pre-commit -> $BAK"
 fi
 
 # === 4) Download to a temp file, then atomically move into place ===
 TMP="$(mktemp)"
-echo "⬇️  Downloading hook from: $HOOK_URL"
+# echo "Downloading hook from: $HOOK_URL"
 fetch_to_file "$HOOK_URL" "$TMP"
 
 # Quick sanity check
 if ! head -n1 "$TMP" | grep -qE '^#!'; then
-  echo "⚠️  Warning: downloaded hook has no shebang on the first line." >&2
+  echo "Warning: downloaded hook has no shebang on the first line." >&2
 fi
 
 mv "$TMP" "$DEST"
@@ -93,13 +93,12 @@ echo "   Repo: $REPO_ROOT"
 echo "   Hook: $DEST"
 
 # === 5) Create verba folder structure ===
-echo "📁 Creating verba folder structure..."
 mkdir -p "$REPO_ROOT/verba"
 echo "✔ Created verba/ directory for AI interaction logs"
 
 # === 6) Configure Claude logging for this repo (optional) ===
 if [ "$EDIT_SHELL" = true ]; then
-  echo "🔧 Configuring Claude logging to verba/prompts.txt in this repo..."
+  echo "✔ Configuring Claude logging to verba/prompts.txt in this repo..."
 
   # Detect rc file (zsh, bash, or fallback)
   SHELL_NAME="$(basename "${SHELL:-}")"
@@ -113,7 +112,7 @@ if [ "$EDIT_SHELL" = true ]; then
   # Remove existing claude function block if we previously added it
   if grep -q "BEGIN VERBA CLAUDE" "$RC_FILE" 2>/dev/null; then
     cp "$RC_FILE" "$RC_FILE.bak.$(timestamp)"
-    echo "🗂  Backed up $RC_FILE"
+    echo "Backed up $RC_FILE"
     perl -i -pe 'BEGIN{undef $/;} s/\n?# BEGIN VERBA CLAUDE[\s\S]*?# END VERBA CLAUDE\n?//smg' "$RC_FILE"
   fi
 
@@ -295,16 +294,11 @@ claude() {
 }
 # END VERBA CLAUDE
 EOF
-
-  echo "✔ Configured Claude to log parsed prompts to verba/prompts.txt"
-  echo "   Log file: $REPO_ROOT/verba/prompts.txt"
 else
-  echo "ℹ️ Skipping shell edits (--no-shell-edit)."
+  echo "Skipping shell edits (--no-shell-edit)."
 fi
 
 # === 7) Smoke test hint ===
-echo "👉 Test hook with:  git commit --allow-empty -m 'hook test'"
 if [ "$EDIT_SHELL" = true ]; then
-  echo "👉 Test Claude logging with:  claude"
-  echo "👉 Restart your terminal or run: source \"$RC_FILE\""
+  echo "Now, Restart your terminal or run: source \"$RC_FILE\""
 fi
