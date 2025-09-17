@@ -6,7 +6,7 @@ INSTALL_URL="${INSTALL_URL:-https://raw.githubusercontent.com/verbadocs/commit-h
 
 usage() {
   cat <<USAGE
-verba — minimal CLI for Verba Git hooks
+verba — let's version your prompts!
 
 Usage:
   verba install          # full install: hook + verba/ + shell rc edits (claude())
@@ -15,13 +15,7 @@ Usage:
   verba uninstall        # remove hook and the claude() block
 
 Env:
-  INSTALL_URL=<url>      # override installer URL (advanced)
-
-Examples:
-  verba install
-  verba init
-  verba init --git-init
-  verba uninstall
+  INSTALL_URL=<url>      # override installer URL
 USAGE
 }
 
@@ -43,7 +37,7 @@ case "$cmd" in
       if git rev-parse --is-inside-work-tree >/dev/null 2>&1; then
         curl -fsSL "$INSTALL_URL" | bash -s -- --no-shell-edit
       else
-        echo "❌ Not a git repo. Run 'git init' first or use: verba init --git-init" >&2
+        echo "Not a git repo. Run 'git init' first or use: verba init --git-init" >&2
         exit 1
       fi
     fi
