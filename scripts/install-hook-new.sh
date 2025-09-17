@@ -295,7 +295,7 @@ claude() {
 # END VERBA CLAUDE
 EOF
 else
-  echo "Skipping shell edits (--no-shell-edit)."
+  echo "Verba successfuly configured to repo"
 fi
 
 # === 7) Smoke test hint ===
