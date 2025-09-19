@@ -5,6 +5,9 @@ set -euo pipefail
 # === CONFIG ===
 # Raw URL of your pre-commit hook (can be overridden by env HOOK_URL)
 HOOK_URL="${HOOK_URL:-https://raw.githubusercontent.com/verbadocs/commit-hook/main/.githooks/pre-commit}"
+# Raw URL of your post-commit hook (can be overridden by env POST_HOOK_URL)
+POST_HOOK_URL="${POST_HOOK_URL:-https://raw.githubusercontent.com/verbadocs/commit-hook/main/.githooks/post-commit}"
+
 VERBA_SCRIPTS_BASE="https://raw.githubusercontent.com/verbadocs/commit-hook/main/scripts"
 # Set INIT_IF_MISSING=true to auto "git init" when run outside a repo
 INIT_IF_MISSING="${INIT_IF_MISSING:-false}"
@@ -54,13 +57,14 @@ cd "$REPO_ROOT"
 
 # === 2) Resolve hooks dir and destination path ===
 HOOKS_DIR="$(git rev-parse --git-path hooks)"
-DEST="$HOOKS_DIR/pre-commit"
+DEST_PRE="$HOOKS_DIR/pre-commit"
+DEST_POST="$HOOKS_DIR/post-commit"
 mkdir -p "$HOOKS_DIR"
 
 # === Uninstall mode ===
 if [ "$DO_UNINSTALL" = true ]; then
   echo "Removing Verba hook and claude() function..."
-  rm -f "$DEST"
+  rm -f "$DEST_PRE" "$DEST_POST"
   for rc in "$HOME/.zshrc" "$HOME/.bashrc" "$HOME/.profile"; do
     [ -f "$rc" ] || continue
     cp "$rc" "$rc.bak.$(timestamp)"
@@ -70,28 +74,32 @@ if [ "$DO_UNINSTALL" = true ]; then
   exit 0
 fi
 
-# === 3) Backup an existing hook if present ===
-if [ -e "$DEST" ] && [ ! -L "$DEST" ]; then
-  BAK="$DEST.bak.$(timestamp)"
-  cp "$DEST" "$BAK"
-  echo "Backed up existing pre-commit -> $BAK"
-fi
+# === 3) Backup existing hooks if present ===
+for dest in "$DEST_PRE" "$DEST_POST"; do
+  if [ -e "$dest" ] && [ ! -L "$dest" ]; then
+    bak="$dest.bak.$(timestamp)"
+    cp "$dest" "$bak"
+    echo "Backed up existing $(basename "$dest") -> $bak"
+  fi
+done
 
-# === 4) Download to a temp file, then atomically move into place ===
-TMP="$(mktemp)"
-# echo "Downloading hook from: $HOOK_URL"
-fetch_to_file "$HOOK_URL" "$TMP"
+# === 4) Download and install pre-commit and post-commit git hooks ===
+for name in pre-commit post-commit; do
+  url="$HOOK_URL"; dest="$DEST_PRE"
+  if [ "$name" = "post-commit" ]; then url="$POST_HOOK_URL"; dest="$DEST_POST"; fi
 
-# Quick sanity check
-if ! head -n1 "$TMP" | grep -qE '^#!'; then
-  echo "Warning: downloaded hook has no shebang on the first line." >&2
-fi
-
-mv "$TMP" "$DEST"
-chmod +x "$DEST"
-echo "✔ Installed .git/hooks/pre-commit"
+  tmp="$(mktemp)"
+  fetch_to_file "$url" "$tmp"
+  if ! head -n1 "$tmp" | grep -qE '^#!'; then
+    echo "Warning: downloaded $name has no shebang on the first line." >&2
+  fi
+  mv "$tmp" "$dest"
+  chmod +x "$dest"
+  echo "✔ Installed .git/hooks/$name"
+done
 echo "   Repo: $REPO_ROOT"
-echo "   Hook: $DEST"
+echo "   Hooks dir: $HOOKS_DIR"
+
 
 # === 5) Create verba folder structure ===
 mkdir -p "$REPO_ROOT/verba"
