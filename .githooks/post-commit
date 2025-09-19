@@ -1,0 +1,51 @@
+#!/bin/bash
+
+PROMPT_HISTORY_DIR="verba/prompt_history"
+MONITOR_SCRIPT="verba/monitor.py"
+
+# Get the current commit hash
+CURRENT_COMMIT_HASH=$(git rev-parse HEAD)
+
+# Find the most recent JSON export file
+LATEST_JSON=$(ls -t "$PROMPT_HISTORY_DIR"/db-export-*.json 2>/dev/null | head -1)
+
+if [ -f "$LATEST_JSON" ] && [ -f "$MONITOR_SCRIPT" ] && command -v python3 &> /dev/null; then
+    python3 -c "
+import json
+import sqlite3
+import sys
+
+json_file = '$LATEST_JSON'
+commit_hash = '$CURRENT_COMMIT_HASH'
+
+try:
+    # Read the JSON export file
+    with open(json_file, 'r') as f:
+        export_data = json.load(f)
+    
+    # Extract change_hash values from the records
+    change_hashes = [record['change_hash'] for record in export_data['records']]
+    
+    if not change_hashes:
+        sys.exit(0)
+    
+    # Update database records
+    conn = sqlite3.connect('verba/changes.db')
+    cursor = conn.cursor()
+    
+    # Create placeholder list for SQL IN clause
+    placeholders = ','.join(['?' for _ in change_hashes])
+    query = f'UPDATE code_changes SET is_committed = 1, commit_hash = ? WHERE change_hash IN ({placeholders})'
+    
+    # Execute update with commit_hash as first parameter, then all change_hashes
+    cursor.execute(query, [commit_hash] + change_hashes)
+    
+    updated_count = cursor.rowcount
+    conn.commit()
+    conn.close()
+
+except Exception as e:
+    print(f'Error updating database: {e}', file=sys.stderr)
+    sys.exit(1)
+" 2>/dev/null || true
+fi
