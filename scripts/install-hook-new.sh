@@ -95,6 +95,13 @@ echo "   Hook: $DEST"
 # === 5) Create verba folder structure ===
 mkdir -p "$REPO_ROOT/verba"
 echo "✔ Created verba/ directory for AI interaction logs"
+# Download helper scripts into verba/ if missing
+for f in monitor.py process-logs.py; do
+  if [ ! -f "$REPO_ROOT/verba/$f" ]; then
+    curl -fsSL "https://raw.githubusercontent.com/verbadocs/commit-hook/main/scripts/$f" -o "$REPO_ROOT/verba/$f"
+    echo "✔ Installed verba/$f"
+  fi
+done
 
 # === 6) Configure Claude logging for this repo (optional) ===
 if [ "$EDIT_SHELL" = true ]; then
