@@ -2,7 +2,7 @@
 set -euo pipefail
 
 # Single source of truth for the installer URL
-INSTALL_URL="${INSTALL_URL:-https://raw.githubusercontent.com/verbadocs/commit-hook/main/scripts/install-hook-new.sh}"
+INSTALL_URL="${INSTALL_URL:-https://raw.githubusercontent.com/verbadocs/commit-hook/main/scripts/install-hook.sh}"
 
 usage() {
   cat <<USAGE
