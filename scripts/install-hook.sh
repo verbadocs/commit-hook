@@ -4,11 +4,11 @@ set -euo pipefail
 
 # === CONFIG ===
 # Raw URL of your pre-commit hook (can be overridden by env HOOK_URL)
-HOOK_URL="${HOOK_URL:-https://raw.githubusercontent.com/verbadocs/commit-hook/main/.githooks/pre-commit}"
+HOOK_URL="${HOOK_URL:-https://raw.githubusercontent.com/verbadocs/commit-hook/Akash/.githooks/pre-commit}"
 # Raw URL of your post-commit hook (can be overridden by env POST_HOOK_URL)
-POST_HOOK_URL="${POST_HOOK_URL:-https://raw.githubusercontent.com/verbadocs/commit-hook/main/.githooks/post-commit}"
+POST_HOOK_URL="${POST_HOOK_URL:-https://raw.githubusercontent.com/verbadocs/commit-hook/Akash/.githooks/post-commit}"
 
-VERBA_SCRIPTS_BASE="https://raw.githubusercontent.com/verbadocs/commit-hook/main/scripts"
+VERBA_SCRIPTS_BASE="https://raw.githubusercontent.com/verbadocs/commit-hook/Akash/scripts"
 # Set INIT_IF_MISSING=true to auto "git init" when run outside a repo
 INIT_IF_MISSING="${INIT_IF_MISSING:-false}"
 # Default: edit shell rc (can be turned off by --no-shell-edit)
