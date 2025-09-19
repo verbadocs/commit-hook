@@ -5,6 +5,7 @@ set -euo pipefail
 # === CONFIG ===
 # Raw URL of your pre-commit hook (can be overridden by env HOOK_URL)
 HOOK_URL="${HOOK_URL:-https://raw.githubusercontent.com/verbadocs/commit-hook/main/.githooks/pre-commit}"
+VERBA_SCRIPTS_BASE="https://raw.githubusercontent.com/verbadocs/commit-hook/main/scripts"
 # Set INIT_IF_MISSING=true to auto "git init" when run outside a repo
 INIT_IF_MISSING="${INIT_IF_MISSING:-false}"
 # Default: edit shell rc (can be turned off by --no-shell-edit)
@@ -97,10 +98,10 @@ mkdir -p "$REPO_ROOT/verba"
 echo "✔ Created verba/ directory for AI interaction logs"
 # Download helper scripts into verba/ if missing
 for f in monitor.py process-logs.py; do
-  if [ ! -f "$REPO_ROOT/verba/$f" ]; then
-    curl -fsSL "https://raw.githubusercontent.com/verbadocs/commit-hook/main/scripts/$f" -o "$REPO_ROOT/verba/$f"
-    echo "✔ Installed scripts verba/$f"
-  fi
+  curl -fsSL "$VERBA_SCRIPTS_BASE/$f" -o "$REPO_ROOT/verba/$f" \
+    || { echo "✖ Failed to fetch $f from $VERBA_SCRIPTS_BASE"; exit 1; }
+  [[ "$f" == *.py ]] && chmod +x "$REPO_ROOT/verba/$f" || true
+  echo "✔ Installed verba/$f (overwritten)"
 done
 
 # === 6) Configure Claude logging for this repo (optional) ===
