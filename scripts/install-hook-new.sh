@@ -99,7 +99,7 @@ echo "✔ Created verba/ directory for AI interaction logs"
 for f in monitor.py process-logs.py; do
   if [ ! -f "$REPO_ROOT/verba/$f" ]; then
     curl -fsSL "https://raw.githubusercontent.com/verbadocs/commit-hook/main/scripts/$f" -o "$REPO_ROOT/verba/$f"
-    echo "✔ Installed verba/$f"
+    echo "✔ Installed scripts verba/$f"
   fi
 done
 
