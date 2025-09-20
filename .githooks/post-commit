@@ -1,51 +1,53 @@
-#!/bin/bash
+#!/usr/bin/env bash
+set -euo pipefail
 
-PROMPT_HISTORY_DIR="verba/prompt_history"
-MONITOR_SCRIPT="verba/monitor.py"
+# Guard to avoid infinite loop on our own amend
+if [[ "${GIT_VERBA_AMEND:-0}" == "1" ]]; then
+  exit 0
+fi
 
-# Get the current commit hash
-CURRENT_COMMIT_HASH=$(git rev-parse HEAD)
+REPO_ROOT="$(git rev-parse --show-toplevel)"
+cd "$REPO_ROOT"
 
-# Find the most recent JSON export file
-LATEST_JSON=$(ls -t "$PROMPT_HISTORY_DIR"/db-export-*.json 2>/dev/null | head -1)
+PROMPT_HISTORY_DIR="$REPO_ROOT/verba/prompt_history"
+DB_PATH="$REPO_ROOT/verba/changes.db"
 
-if [ -f "$LATEST_JSON" ] && [ -f "$MONITOR_SCRIPT" ] && command -v python3 &> /dev/null; then
-    python3 -c "
-import json
-import sqlite3
-import sys
+# Current commit
+CURRENT_COMMIT_HASH="$(git rev-parse HEAD)"
 
-json_file = '$LATEST_JSON'
-commit_hash = '$CURRENT_COMMIT_HASH'
+# Most recent JSON export (if any)
+LATEST_JSON="$(ls -t "$PROMPT_HISTORY_DIR"/db-export-*.json 2>/dev/null | head -1 || true)"
 
+# If we have a JSON export and Python, mark those records as committed in the DB
+if [[ -n "${LATEST_JSON:-}" ]] && command -v python3 >/dev/null 2>&1; then
+  python3 - <<PY
+import json, sqlite3, sys
+json_file = r'''$LATEST_JSON'''
+commit_hash = r'''$CURRENT_COMMIT_HASH'''
 try:
-    # Read the JSON export file
-    with open(json_file, 'r') as f:
+    with open(json_file, 'r', encoding='utf-8') as f:
         export_data = json.load(f)
-    
-    # Extract change_hash values from the records
-    change_hashes = [record['change_hash'] for record in export_data['records']]
-    
+    records = export_data.get('records') or []
+    change_hashes = [r.get('change_hash') for r in records if r.get('change_hash')]
     if not change_hashes:
         sys.exit(0)
-    
-    # Update database records
-    conn = sqlite3.connect('verba/changes.db')
-    cursor = conn.cursor()
-    
-    # Create placeholder list for SQL IN clause
-    placeholders = ','.join(['?' for _ in change_hashes])
-    query = f'UPDATE code_changes SET is_committed = 1, commit_hash = ? WHERE change_hash IN ({placeholders})'
-    
-    # Execute update with commit_hash as first parameter, then all change_hashes
-    cursor.execute(query, [commit_hash] + change_hashes)
-    
-    updated_count = cursor.rowcount
+    conn = sqlite3.connect(r'''$DB_PATH''')
+    cur = conn.cursor()
+    ph = ','.join('?' for _ in change_hashes)
+    sql = f'UPDATE code_changes SET is_committed = 1, commit_hash = ? WHERE change_hash IN ({ph})'
+    cur.execute(sql, [commit_hash] + change_hashes)
     conn.commit()
     conn.close()
-
 except Exception as e:
     print(f'Error updating database: {e}', file=sys.stderr)
     sys.exit(1)
-" 2>/dev/null || true
+PY
+fi
+
+# If the DB changed after the commit, fold it into the same commit with an amend.
+# `git diff -- verba/changes.db` compares working tree vs index.
+if ! git diff --quiet -- verba/changes.db; then
+  git add -f verba/changes.db
+  # Prevent re-entry on the amend's post-commit
+  GIT_VERBA_AMEND=1 git commit --amend --no-edit >/dev/null 2>&1 || true
 fi
