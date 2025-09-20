@@ -263,14 +263,14 @@ claude() {
             fi
             local file_to_read="$write_filename"
             [[ "$write_filename" =~ ^/ ]] || file_to_read="$(pwd)/$write_filename"
-            local max_attempts=30 attempt=0 file_found=false
+            local max_attempts=120 attempt=0 file_found=false
             while [[ $attempt -lt $max_attempts ]]; do
               if [[ -f "$file_to_read" ]]; then
                 sleep 1; local size1=$(wc -c < "$file_to_read" 2>/dev/null || echo "0")
                 sleep 1; local size2=$(wc -c < "$file_to_read" 2>/dev/null || echo "0")
                 if [[ "$size1" == "$size2" && "$size1" -gt 0 ]]; then file_found=true; break; fi
               fi
-              sleep 2; ((attempt++))
+              sleep 0.5; ((attempt++))
             done
             if [[ "$file_found" == true ]]; then
               cat "$file_to_read" >> "$log_file"
@@ -314,7 +314,7 @@ verba_autostart() {
     if [[ -f "verba/monitor.py" ]] && [[ -f "verba/prompts.txt" ]]; then
         # Initialize database if it doesn't exist
         if [[ ! -f "verba/changes.db" ]]; then
-            echo "🔥 Initializing Verba database..."
+            echo "Initializing Verba database..."
             python3 verba/monitor.py --init-db
         fi
     fi
