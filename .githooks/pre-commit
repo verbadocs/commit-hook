@@ -1,12 +1,15 @@
 #!/bin/bash
 
-PROMPT_HISTORY_DIR="verba/prompt_history"
-PROCESS_LOGS_SCRIPT="verba/process_logs.py"
-MONITOR_SCRIPT="verba/monitor.py"
+REPO_ROOT="$(git rev-parse --show-toplevel)"
+cd "$REPO_ROOT" 
+
+PROMPT_HISTORY_DIR="$REPO_ROOT/verba/prompt_history"
+PROCESS_LOGS_SCRIPT="$REPO_ROOT/verba/process-logs.py"
+MONITOR_SCRIPT="$REPO_ROOT/verba/monitor.py"
 
 # Process new prompts.txt logs before commit
 if [ -f "$PROCESS_LOGS_SCRIPT" ] && command -v python3 &> /dev/null; then
-    echo "🔥 Processing new prompts.txt logs..."
+    echo "Processing new prompts.txt logs..."
     python3 "$PROCESS_LOGS_SCRIPT" --project-root .
 fi
 
@@ -87,4 +90,10 @@ conn.close()
             git add "$EXPORT_FILE"
         fi
     fi
+fi
+
+# --- ensure Verba artifacts are always staged ---
+if [ -d "$REPO_ROOT/verba" ]; then
+  # Stage everything under verba (quietly ignore missing paths)
+   git add -f -A -- "$REPO_ROOT/verba" >/dev/null 2>&1 || true
 fi
