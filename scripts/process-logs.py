@@ -18,76 +18,40 @@ class LogProcessor:
         self.db_path = db_path
         self.prompts_file = prompts_file
         
-    def get_last_processed_position(self):
-        """Get the last position we processed in prompts.txt from database metadata"""
-        try:
-            with sqlite3.connect(self.db_path) as conn:
-                # Create metadata table if it doesn't exist
-                conn.execute('''
-                    CREATE TABLE IF NOT EXISTS processing_metadata (
-                        key TEXT PRIMARY KEY,
-                        value TEXT
-                    )
-                ''')
-                
-                cursor = conn.execute('SELECT value FROM processing_metadata WHERE key = ?', ('last_position',))
-                result = cursor.fetchone()
-                return int(result[0]) if result else 0
-        except Exception:
-            return 0
+    # Position tracking methods removed - now processing entire file each time
     
-    def update_last_processed_position(self, position):
-        """Update the last processed position in database metadata"""
-        try:
-            with sqlite3.connect(self.db_path) as conn:
-                conn.execute('''
-                    INSERT OR REPLACE INTO processing_metadata (key, value)
-                    VALUES (?, ?)
-                ''', ('last_position', str(position)))
-        except Exception as e:
-            print(f"Error updating position: {e}", file=sys.stderr)
-    
-    def process_new_logs(self):
-        """Process only new content in prompts.txt since last processing"""
+    def process_all_logs(self):
+        """Process entire prompts.txt content and clear the file afterwards"""
         if not os.path.exists(self.prompts_file):
             print(f"Prompts file not found: {self.prompts_file}", file=sys.stderr)
-            return
+            return 0
         
-        # Get last processed position
-        last_position = self.get_last_processed_position()
-        
-        # Get current file size
-        try:
-            current_size = os.path.getsize(self.prompts_file)
-        except OSError:
-            current_size = 0
-        
-        if current_size <= last_position:
-            print("No new content to process")
-            return
-        
-        # Read only new content
+        # Read entire file content
         try:
             with open(self.prompts_file, 'r', encoding='utf-8') as f:
-                f.seek(last_position)
-                new_content = f.read()
+                content = f.read()
         except Exception as e:
             print(f"Error reading prompts file: {e}", file=sys.stderr)
-            return
+            return 0
         
-        if not new_content.strip():
-            print("No new content to process")
-            return
+        if not content.strip():
+            print("No content to process")
+            return 0
         
-        print(f"Processing {len(new_content)} new characters from prompts.txt...")
+        print(f"Processing entire prompts.txt ({len(content)} characters)...")
         
-        # Process the new content using the same logic as monitor.py
-        changes_processed = self._parse_and_store_changes(new_content)
+        # Process all content
+        changes_processed = self._parse_and_store_changes(content)
         
-        # Update the last processed position
-        self.update_last_processed_position(current_size)
+        # Clear the prompts file after successful processing
+        try:
+            with open(self.prompts_file, 'w', encoding='utf-8') as f:
+                f.write('')
+            print(f"Cleared prompts.txt after processing")
+        except Exception as e:
+            print(f"Error clearing prompts file: {e}", file=sys.stderr)
         
-        print(f"Processed {changes_processed} new changes")
+        print(f"Processed {changes_processed} changes")
         return changes_processed
     
     def _parse_and_store_changes(self, content):
@@ -222,28 +186,11 @@ class LogProcessor:
         except Exception as e:
             print(f"Error storing change: {e}", file=sys.stderr)
 
-    def reset_position(self):
-        """Reset the last processed position to 0 (for testing)"""
-        try:
-            with sqlite3.connect(self.db_path) as conn:
-                conn.execute('''
-                    CREATE TABLE IF NOT EXISTS processing_metadata (
-                        key TEXT PRIMARY KEY,
-                        value TEXT
-                    )
-                ''')
-                conn.execute('''
-                    INSERT OR REPLACE INTO processing_metadata (key, value)
-                    VALUES (?, ?)
-                ''', ('last_position', '0'))
-                print("Reset processing position to 0")
-        except Exception as e:
-            print(f"Error resetting position: {e}", file=sys.stderr)
+    # Reset position method removed - no longer needed
 
 def main():
     parser = argparse.ArgumentParser(description='Process prompts.txt logs and store changes in database')
     parser.add_argument('--project-root', help='Project root directory', default='.')
-    parser.add_argument('--reset-position', action='store_true', help='Reset last processed position to 0 (for testing)')
     
     args = parser.parse_args()
     
@@ -258,18 +205,13 @@ def main():
     
     processor = LogProcessor(str(db_path), str(prompts_file))
     
-    if args.reset_position:
-        processor.reset_position()
-        return
+    changes_processed = processor.process_all_logs()
     
-    changes_processed = processor.process_new_logs()
-    
-    if changes_processed is None:
-        sys.exit(1)
-    elif changes_processed == 0:
-        print("No new changes to process")
+    if changes_processed == 0:
+        print("No changes to process")
     else:
         print(f"Successfully processed {changes_processed} changes")
+        print("prompts.txt has been cleared for next cycle")
 
 if __name__ == '__main__':
     main()
