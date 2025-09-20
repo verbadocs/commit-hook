@@ -34,14 +34,6 @@ class VerbaDatabase:
             conn.execute('CREATE INDEX IF NOT EXISTS idx_filename ON code_changes(filename)')
             conn.execute('CREATE INDEX IF NOT EXISTS idx_committed ON code_changes(is_committed)')
             
-            # Create metadata table for processing position tracking
-            conn.execute('''
-                CREATE TABLE IF NOT EXISTS processing_metadata (
-                    key TEXT PRIMARY KEY,
-                    value TEXT
-                )
-            ''')
-            
         print(f"Database initialized: {self.db_path}")
     
 def main():
