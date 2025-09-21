@@ -309,13 +309,22 @@ claude() {
   (echo "[$(date -Iseconds)] Claude session ended" >> "$log_file") 2>/dev/null
 }
 
-# Verba auto-setup (database initialization only)
+# Verba auto-setup (database initialization and merge driver)
 verba_autostart() {
     if [[ -f "verba/monitor.py" ]] && [[ -f "verba/prompts.txt" ]]; then
         # Initialize database if it doesn't exist
         if [[ ! -f "verba/changes.db" ]]; then
-            echo "Initializing Verba database..."
+            echo "🔥 Initializing Verba database..."
             python3 verba/monitor.py --init-db
+        fi
+        
+        # Setup merge driver if not already configured
+        if [[ -f "verba/setup-merge-driver.sh" ]]; then
+            if ! git config merge.verba-db.driver >/dev/null 2>&1; then
+                echo "🔥 Setting up Verba merge driver..."
+                ./verba/setup-merge-driver.sh >/dev/null 2>&1
+                echo "✅ Merge driver configured for automatic database merging"
+            fi
         fi
     fi
 }
@@ -329,9 +338,10 @@ cd() {
 
 # Check on terminal start
 verba_autostart
-
 # END VERBA CLAUDE
+
 EOF
+
 else
   echo "Verba successfuly configured to repo"
 fi
