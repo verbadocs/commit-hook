@@ -4,11 +4,25 @@ A smart Git pre-commit hook that automatically tracks and logs your Claude AI in
 
 ## Installation
 
-Install the hook with a single command:
+1) Full install (hook + verba/ + shell edits)
 
 ```bash
-bash <(curl -fsSL https://raw.githubusercontent.com/verbadocs/commit-hook/main/scripts/install-hook.sh)
+curl -fsSL https://raw.githubusercontent.com/verbadocs/commit-hook/main/scripts/install-hook.sh | bash -s --
 ```
+
+2) Single-repo Init (hook + verba/, no shell edits)
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/verbadocs/commit-hook/main/scripts/install-hook.sh | bash -s -- --no-shell-edit
+```
+3) Uninstall
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/verbadocs/commit-hook/main/scripts/install-hook.sh | bash -s -- --uninstall
+```
+
+
+
 
 ### What the installer does:
 
