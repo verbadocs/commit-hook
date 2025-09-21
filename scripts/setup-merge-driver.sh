@@ -18,23 +18,5 @@ fi
 chmod +x "$MERGE_SCRIPT"
 
 # Configure the merge driver in Git
-echo "Configuring Git merge driver..."
 git config merge.verba-db.name "Verba database merge driver"
 git config merge.verba-db.driver "python3 '$MERGE_SCRIPT' %O %A %B"
-
-# Verify the configuration
-echo ""
-echo "✅ Merge driver configured successfully!"
-echo ""
-echo "Configuration:"
-echo "Name: $(git config merge.verba-db.name)"
-echo "Driver: $(git config merge.verba-db.driver)"
-echo ""
-echo "The merge driver is now active for verba/changes.db"
-echo "It will automatically handle merge conflicts in the database."
-echo ""
-echo "To verify .gitattributes is configured correctly:"
-echo "  cat .gitattributes | grep verba/changes.db"
-echo ""
-echo "To test the merge driver, create branches with different database content"
-echo "and merge them - the databases will be automatically combined."
