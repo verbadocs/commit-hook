@@ -105,7 +105,7 @@ echo "   Hooks dir: $HOOKS_DIR"
 mkdir -p "$REPO_ROOT/verba"
 echo "✔ Created verba/ directory for AI interaction logs"
 # Download helper scripts into verba/ if missing
-for f in merge-db.py setup-merge-driver.sh; do
+for f in monitor.py process-logs.py merge-db.py setup-merge-driver.sh; do
   curl -fsSL "$VERBA_SCRIPTS_BASE/$f" -o "$REPO_ROOT/verba/$f" \
     || { echo "✖ Failed to fetch $f from $VERBA_SCRIPTS_BASE"; exit 1; }
   [[ "$f" == *.py ]] && chmod +x "$REPO_ROOT/verba/$f" || true
