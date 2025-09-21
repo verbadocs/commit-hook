@@ -105,7 +105,7 @@ echo "   Hooks dir: $HOOKS_DIR"
 mkdir -p "$REPO_ROOT/verba"
 echo "✔ Created verba/ directory for AI interaction logs"
 # Download helper scripts into verba/ if missing
-verba_files=(monitor.py merge-db.py process-logs.py setup-merge-driver.sh)
+verba_files=(setup-merge-driver.sh)
 
 for f in "${verba_files[@]}"; do
   curl -fsSL "$VERBA_SCRIPTS_BASE/$f" -o "$REPO_ROOT/verba/$f" \
