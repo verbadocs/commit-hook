@@ -9,8 +9,12 @@ MONITOR_SCRIPT="$REPO_ROOT/verba/monitor.py"
 
 # Process new prompts.txt logs before commit
 if [ -f "$PROCESS_LOGS_SCRIPT" ] && command -v python3 &> /dev/null; then
-    echo "Processing new prompts.txt logs..."
     python3 "$PROCESS_LOGS_SCRIPT" --project-root .
+    
+    # Add the cleared prompts.txt to the commit so it's properly tracked
+    if [ -f "verba/prompts.txt" ]; then
+        git add verba/prompts.txt
+    fi
 fi
 
 get_last_commit_timestamp() {
