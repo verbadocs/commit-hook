@@ -141,18 +141,35 @@
   }
 
   async function fetchNewestPromptLog({ owner, repo, ref }) {
-    const url = `https://api.github.com/repos/${owner}/${repo}/contents/verba/prompt_history?ref=${encodeURIComponent(ref)}`;
-    const res = await fetch(url, { headers: { 'Accept': 'application/vnd.github+json' } });
-    if (!res.ok) throw new Error(`Failed to list prompt_history (${res.status})`);
-    const items = await res.json();
-    const mdFiles = (Array.isArray(items) ? items : []).filter(x => x.type === 'file' && /\.md$/i.test(x.name));
-    if (!mdFiles.length) throw new Error('No prompt logs found in verba/prompt_history');
-    mdFiles.sort((a, b) => a.name.localeCompare(b.name));
-    const newest = mdFiles[mdFiles.length - 1];
-    const mdRes = await fetch(newest.download_url);
-    if (!mdRes.ok) throw new Error(`Failed to download ${newest.name} (${mdRes.status})`);
-    return await mdRes.text();
+  const url = `https://api.github.com/repos/${owner}/${repo}/contents/verba/prompt_history?ref=${encodeURIComponent(ref)}`;
+  const res = await fetch(url, { headers: { 'Accept': 'application/vnd.github+json' } });
+  if (!res.ok) throw new Error(`Failed to list prompt_history (${res.status})`);
+  const items = await res.json();
+
+  // Prefer JSON logs; fall back to MD if none are present.
+  const pickNewest = (ext) =>
+    (items || [])
+      .filter(x => x.type === 'file' && x.name.toLowerCase().endsWith(ext))
+      .sort((a, b) => a.name.localeCompare(b.name))
+      .at(-1);
+
+  const newestJson = pickNewest('.json');
+  const newestMd   = pickNewest('.md');
+  const newest     = newestJson || newestMd;
+  if (!newest) throw new Error('No prompt logs found in verba/prompt_history');
+
+  const dl = await fetch(newest.download_url);
+  if (!dl.ok) throw new Error(`Failed to download ${newest.name} (${dl.status})`);
+  const text = await dl.text();
+
+  if (newestJson) {
+    // be tolerant of trailing commas etc.
+    try { return { kind: 'json', data: JSON.parse(text) }; }
+    catch { throw new Error(`Could not parse ${newest.name} as JSON`); }
   }
+  return { kind: 'md', data: text };
+}
+
 
   const lc = s => String(s||'').toLowerCase();
   const norm = s => String(s||'')
@@ -162,8 +179,34 @@
     .replace(/\/{2,}/g, '/')
     .trim();
 
-  function parseLogForFile(markdown, targetPath) {
-    const target = lc(norm(targetPath));
+function parseLogForFile(log, targetPath) {
+  const target = lc(norm(targetPath || ''));
+
+  // --- JSON format ---
+  if (log && log.kind === 'json' && log.data && Array.isArray(log.data.records)) {
+    const recs = log.data.records;
+    // filename match that’s forgiving about relative paths
+    const isHit = (fname) => {
+      const f = lc(norm(fname || ''));
+      return (
+        f === target ||
+        f.endsWith('/' + target) ||
+        target.endsWith('/' + f) ||
+        f.includes(target) ||
+        target.includes(f)
+      );
+    };
+
+    const hits = recs.filter(r => isHit(r.filename));
+    return hits.map(r => ({
+      prompt: r.prompt || '(no prompt)',
+      code: r.file_change || ''
+    }));
+  }
+
+  // --- Legacy markdown format (unchanged from before) ---
+  if (log && log.kind === 'md') {
+    const markdown = String(log.data || '');
     const lines = markdown.split(/\r?\n/);
 
     const rHead  = /^\s*##\s+\[[^\]]+\]\s+User Prompt:\s*(.*)$/i;
@@ -172,7 +215,7 @@
 
     const heads = [];
     const files = [];
-    for (let i=0;i<lines.length;i++){
+    for (let i = 0; i < lines.length; i++) {
       if (rHead.test(lines[i])) heads.push(i);
       const m = lines[i].match(rFile);
       if (m) files.push({ i, pathRaw: m[1], path: lc(norm(m[1])) });
@@ -180,17 +223,17 @@
 
     const matches = files.filter(f =>
       f.path.includes(target) || target.includes(f.path) ||
-      f.path.endsWith('/'+target) || target.endsWith('/'+f.path)
+      f.path.endsWith('/' + target) || target.endsWith('/' + f.path)
     );
 
     const results = [];
     for (const { i: fi } of matches) {
       let hPrev = -1;
-      for (let k=heads.length-1; k>=0; k--) { if (heads[k] < fi) { hPrev = heads[k]; break; } }
+      for (let k = heads.length - 1; k >= 0; k--) { if (heads[k] < fi) { hPrev = heads[k]; break; } }
       if (hPrev < 0) continue;
 
       let hNext = lines.length;
-      for (let k=0; k<heads.length; k++) { if (heads[k] > fi) { hNext = heads[k]; break; } }
+      for (let k = 0; k < heads.length; k++) { if (heads[k] > fi) { hNext = heads[k]; break; } }
 
       const block = lines.slice(hPrev, hNext);
       const prompt = (block[0].match(rHead)?.[1] || '(no prompt)').trim();
@@ -215,6 +258,10 @@
 
     return results;
   }
+
+  return [];
+}
+
 
   function renderEntries(entries, filePath) {
     const body = doc.getElementById('gh-mini-body');
@@ -309,8 +356,8 @@
 
         try {
           const ctx = getRepoContext();
-          const md = await fetchNewestPromptLog(ctx);
-          const entries = parseLogForFile(md, filePath);
+          const log = await fetchNewestPromptLog(ctx);
+          const entries = parseLogForFile(log, filePath);
           renderEntries(entries, filePath);
         } catch (err) {
           if (body) body.innerHTML = `<div class="ghms-empty">Error: ${escapeHtml(err.message || String(err))}</div>`;
