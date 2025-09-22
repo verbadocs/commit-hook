@@ -174,15 +174,6 @@ class LogProcessor:
                     VALUES (?, ?, ?, ?, ?, ?, ?)
                 ''', (change_hash, filename, file_change, dt, prompt, False, None))
                 
-                # Check if we actually inserted (not ignored due to duplicate)
-                if conn.total_changes > 0:
-                    print(f"🔥 STORED CHANGE:")
-                    print(f"   File: {filename}")
-                    print(f"   Timestamp: {timestamp}")
-                    print(f"   Prompt: {prompt[:50]}..." if len(prompt) > 50 else f"   Prompt: {prompt}")
-                    print(f"   Hash: {change_hash[:8]}...")
-                    print("="*50)
-                
         except Exception as e:
             print(f"Error storing change: {e}", file=sys.stderr)
 
