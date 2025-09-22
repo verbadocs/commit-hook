@@ -137,6 +137,7 @@ if [ "$EDIT_SHELL" = true ]; then
   # Add your full claude() implementation (unchanged), plus Linux shasum alias
   cat >> "$RC_FILE" << 'EOF'
 
+
 # BEGIN VERBA CLAUDE
 # shasum fallback for Linux
 if ! command -v shasum >/dev/null 2>&1 && command -v sha256sum >/dev/null 2>&1; then
@@ -254,7 +255,81 @@ claude() {
       while IFS=':' read -r write_line write_content; do
         local write_filename=$(echo "$write_content" | sed -E 's/.*⏺.*Write\(([^)]+)\).*/\1/')
         if [[ -n "$write_filename" ]]; then
-          local write_hash=$(echo "WRITE:$write_filename" | shasum -a 256 | cut -d' ' -f1)
+          # Wait and keep checking for the session file to be updated
+          local temp_file_updated=$(mktemp)
+          local has_error=false
+          
+          while true; do
+            sleep 0.2
+            
+            # Re-read the temp file to get latest content
+            cat "$session_file" | \
+                LC_ALL=C sed -E 's/\x1b\[[0-9;]*[a-zA-Z]//g' | \
+                LC_ALL=C tr -d '\r' > "$temp_file_updated"
+            
+            # Find this specific Write operation in the updated file
+            local updated_write_line=$(grep -n "⏺.*Write($write_filename)" "$temp_file_updated" | tail -1 | cut -d: -f1)
+            
+            if [[ -n "$updated_write_line" ]]; then
+              # Check if the next line after the Write operation exists
+              local next_line_num=$((updated_write_line + 1))
+              local next_line=$(sed -n "${next_line_num}p" "$temp_file_updated")
+              
+              if [[ -n "$next_line" ]]; then
+                # We found the next line, now check what it contains
+                
+                # Check for error patterns (silent)
+                if [[ "$next_line" =~ ⎿.*(Error|error|failed|Failed) ]]; then
+                  has_error=true
+                  break  # Break out of while loop
+                fi
+                
+                # Check for User rejected (silent)
+                if [[ "$next_line" =~ ⎿.*User\ rejected ]]; then
+                  has_error=true
+                  break  # Break out of while loop
+                fi
+                
+                # Check for Updated case (log diff instead of file)
+                if [[ "$next_line" =~ ⎿.*Updated ]]; then
+                  local write_hash=$(echo "WRITE:$write_filename" | shasum -a 256 | cut -d' ' -f1)
+                  if [[ ! -f "$prompt_diff_hash_file" ]] || ! grep -q "$write_hash" "$prompt_diff_hash_file" 2>/dev/null; then
+                    logged_new_content=true
+                    if [[ "$write_filename" != "$current_file" ]]; then
+                      current_file="$write_filename"
+                      echo "" >> "$log_file"
+                      echo "FILE: $current_file" >> "$log_file"
+                      echo "----------------------------------------" >> "$log_file"
+                    fi
+                    
+                    # Log the diff lines that follow the Updated line
+                    local diff_line_num=$((next_line_num + 1))
+                    while true; do
+                      local diff_line=$(sed -n "${diff_line_num}p" "$temp_file_updated")
+                      if [[ -z "$diff_line" || "$diff_line" =~ ^[[:space:]]*⏺ || "$diff_line" =~ ^[[:space:]]*\> ]]; then
+                        break
+                      fi
+                      echo "$diff_line" >> "$log_file"
+                      ((diff_line_num++))
+                    done
+                    
+                    echo "$write_hash" >> "$prompt_diff_hash_file"
+                  fi
+                  has_error=true  # Don't do normal file logging
+                  break  # Break out of while loop
+                fi
+                
+                # If it's any other content (success case), proceed to log
+                break  # Break out of while loop
+              fi
+            fi
+          done
+          
+          rm -f "$temp_file_updated"
+          
+          # Only log the file if there was no error
+          if [[ "$has_error" == false ]]; then
+            local write_hash=$(echo "WRITE:$write_filename" | shasum -a 256 | cut -d' ' -f1)
           if [[ ! -f "$prompt_diff_hash_file" ]] || ! grep -q "$write_hash" "$prompt_diff_hash_file" 2>/dev/null; then
             logged_new_content=true
             if [[ "$write_filename" != "$current_file" ]]; then
@@ -282,6 +357,7 @@ claude() {
             echo "$write_hash" >> "$prompt_diff_hash_file"
           fi
         fi
+      fi
       done < "$temp_writes"
     fi
     
@@ -316,14 +392,17 @@ verba_autostart() {
     if [[ -f "verba/monitor.py" ]] && [[ -f "verba/prompts.txt" ]]; then
         # Initialize database if it doesn't exist
         if [[ ! -f "verba/changes.db" ]]; then
+            echo "🔥 Initializing Verba database..."
             python3 verba/monitor.py --init-db
         fi
         
         # Setup merge driver if not already configured
         if [[ -f "verba/setup-merge-driver.sh" ]]; then
             if ! git config merge.verba-db.driver >/dev/null 2>&1; then
+                echo "🔥 Setting up Verba merge driver..."
                 chmod +x verba/setup-merge-driver.sh 2>/dev/null
                 ./verba/setup-merge-driver.sh >/dev/null 2>&1
+                echo "✅ Merge driver configured for automatic database merging"
             fi
         fi
     fi
@@ -339,7 +418,6 @@ cd() {
 # Check on terminal start
 verba_autostart
 # END VERBA CLAUDE
-
 EOF
 
 else
