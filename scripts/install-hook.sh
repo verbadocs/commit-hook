@@ -322,6 +322,7 @@ verba_autostart() {
         # Setup merge driver if not already configured
         if [[ -f "verba/setup-merge-driver.sh" ]]; then
             if ! git config merge.verba-db.driver >/dev/null 2>&1; then
+                chmod +x verba/setup-merge-driver.sh 2>/dev/null
                 ./verba/setup-merge-driver.sh >/dev/null 2>&1
             fi
         fi
